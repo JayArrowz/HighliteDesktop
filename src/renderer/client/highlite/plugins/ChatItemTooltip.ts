@@ -185,7 +185,7 @@ export class ChatItemTooltip extends Plugin {
             }
             
             .hs-inventory-overlay::after {
-                content: '📎';
+                content: '🔗';
                 position: absolute;
                 top: 2px;
                 right: 2px;
