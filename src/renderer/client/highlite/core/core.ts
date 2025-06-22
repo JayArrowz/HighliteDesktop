@@ -60,6 +60,8 @@ export class Highlite {
         this.hookManager.registerClass("PF", "PF"); // Unkown Name
         this.hookManager.registerClass("NW", "PrivateChatMessageList");
         this.hookManager.registerClass('HR', 'HR');
+        this.hookManager.registerClass('$W', 'ItemSpriteManager');
+        this.hookManager.registerClass('DP', 'ItemDefMap');
 
         // Function Hook-ins
         this.hookManager.registerClassHook("GameLoop", "_update");
@@ -84,6 +86,7 @@ export class Highlite {
         document.highlite.gameLookups["GameWorldActions"] = document.client.get("VA");
         document.highlite.gameLookups["InventoryActions"] = document.client.get("QA");
         document.highlite.gameLookups["Skills"] = document.client.get("bA");
+        document.highlite.gameLookups["EquipmentTypes"] = document.client.get("oP");
     }
 
     async start() {
