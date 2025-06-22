@@ -10,6 +10,11 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()]
   },
   renderer: {
+    resolve: {
+      alias: {
+        "@static": resolve(__dirname, "static")
+      }
+    },
     build: {
       rollupOptions: {
         input: {
