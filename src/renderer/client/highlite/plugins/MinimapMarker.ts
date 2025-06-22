@@ -149,15 +149,7 @@ export class MinimapMarker extends Plugin {
             this.minimapMarkerEl.style.visibility = "visible";
         }
     }
-
-    public updateDestination(x: number, z: number, level: number = 1) {
-        this.settings.destinationX.value = x;
-        this.settings.destinationZ.value = z;
-        this.settings.destinationLevel.value = level;
-        this.setDestination(x, z, level);
-        this.log(`Destination updated to X: ${x}, Z: ${z}, Level: ${level}`);
-    }
-
+    
     private createOrEnsureMinimapMarker() {
         if (!this.minimapContainer) return;
         if (this.minimapMarkerEl) return;
