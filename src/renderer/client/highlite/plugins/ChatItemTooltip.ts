@@ -311,11 +311,7 @@ export class ChatItemTooltip extends Plugin {
     private ensureTooltip() {
         if (this.tooltipEl) return;
         
-        const screenMask = document.getElementById('hs-screen-mask');
-        if (!screenMask) {
-            this.log('Warning: hs-screen-mask not found even after login, creating tooltip in body');
-        }
-        
+        const screenMask = document.getElementById('hs-screen-mask');        
         this.tooltipEl = document.createElement('div');
         this.tooltipEl.className = 'hs-item-tooltip';
         this.tooltipEl.style.position = 'fixed';
@@ -325,8 +321,6 @@ export class ChatItemTooltip extends Plugin {
         
         const container = screenMask || document.body;
         container.appendChild(this.tooltipEl);
-        
-        this.log(`Tooltip created and appended to: ${screenMask ? 'hs-screen-mask' : 'document.body'}`);
     }
 
     private showTooltip(anchor: HTMLElement, event?: MouseEvent) {
@@ -628,7 +622,6 @@ export class ChatItemTooltip extends Plugin {
     private showInventoryOverlays() {
         if (this.overlaysCreated) return;
         
-        this.log("Creating inventory overlays...");
         this.overlaysCreated = true;
         
         const inventoryCells = document.querySelectorAll('.hs-item-table__cell[data-slot]');
@@ -650,12 +643,9 @@ export class ChatItemTooltip extends Plugin {
             } catch (error) {
             }
         });
-        
-        this.log(`Created ${this.inventoryOverlays.length} overlays`);
     }
 
     private hideInventoryOverlays() {
-        this.log("Hiding inventory overlays...");
         this.cleanupInventoryOverlays();
         this.overlaysCreated = false;
     }
@@ -674,14 +664,9 @@ export class ChatItemTooltip extends Plugin {
         overlay.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
-            this.log(`Overlay clicked for slot ${slotIndex}`);
             this.handleInventoryItemClick(slotIndex);
         });
-        
-        overlay.addEventListener('mouseenter', () => {
-            this.log(`Hovering overlay for slot ${slotIndex}`);
-        });
-        
+                
         const cellStyle = getComputedStyle(inventoryCell);
         if (cellStyle.position === 'static') {
             inventoryCell.style.position = 'relative';
@@ -689,59 +674,31 @@ export class ChatItemTooltip extends Plugin {
         
         inventoryCell.appendChild(overlay);
         this.inventoryOverlays.push(overlay);
-        
-        this.log(`Created overlay for slot ${slotIndex}`);
     }
 
     private handleInventoryItemClick(slotIndex: number) {
-        this.log(`handleInventoryItemClick called for slot ${slotIndex}`);
-        
         try {
             const inventoryItems = (document as any).highlite.gameHooks.EntityManager.Instance.MainPlayer.Inventory.Items;
-            this.log(`Inventory items array length: ${inventoryItems?.length}`);
             
             const item = inventoryItems[slotIndex];
-            this.log(`Item at slot ${slotIndex}:`, item);
             
-            if (!item) {
-                this.log(`No item found in slot ${slotIndex}`);
+            if (!item || !item._def) {
                 return;
             }
             
-            if (!item._def) {
-                this.log(`Item in slot ${slotIndex} has no _def property`);
-                return;
-            }
-            
-            const itemId = item._def._id;
-            this.log(`Item ID: ${itemId}`);
-            
+            const itemId = item._def._id;            
             this.addItemToChatInput(itemId);
-            
         } catch (error) {
-            this.log(`Error accessing inventory item at slot ${slotIndex}: ${error}`);
         }
     }
 
     private addItemToChatInput(itemId: number) {
-        this.log(`addItemToChatInput called with ID: ${itemId}`);
-        
         try {
-            const chatController = (document as any).highlite.gameHooks.HR.Manager.getController().ChatMenuController;
-            this.log(`Chat controller:`, chatController);
-            
-            const chatInput = chatController._chatMenuQuadrant.getChatMenu().getChatInputMenu().getChatInput();
-            this.log(`Chat input:`, chatInput);
-            
-            const currentValue = chatInput.getInputValue();
-            this.log(`Current chat value: "${currentValue}"`);
-            
-            const newValue = currentValue + (currentValue ? ' ' : '') + `[${itemId}]`;
-            this.log(`New chat value: "${newValue}"`);
-            
+            const chatController = (document as any).highlite.gameHooks.HR.Manager.getController().ChatMenuController;            
+            const chatInput = chatController._chatMenuQuadrant.getChatMenu().getChatInputMenu().getChatInput();            
+            const currentValue = chatInput.getInputValue();            
+            const newValue = currentValue + (currentValue ? ' ' : '') + `[${itemId}]`;            
             chatInput.setInputValue(newValue);
-            
-            this.log(`Successfully added item ${itemId} to chat input`);
         } catch (error) {
             this.log(`Error adding item to chat input: ${error}`);
             if (error instanceof Error) {
@@ -760,7 +717,6 @@ export class ChatItemTooltip extends Plugin {
     }
 
     private initializePlugin() {
-        this.log("Reinitializing ChatItemTooltip plugin");
         this.processedIds.clear();
         this.ensureTooltip();
         if (!document.querySelector('style[data-chat-tooltip]')) {
@@ -769,7 +725,6 @@ export class ChatItemTooltip extends Plugin {
     }
 
     private disablePlugin() {
-        this.log("Disabling ChatItemTooltip plugin");
         this.hideTooltip();
         this.hideInventoryOverlays();
         this.removeDebug();
