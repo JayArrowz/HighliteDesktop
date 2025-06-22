@@ -59,11 +59,16 @@ export class Highlite {
         // this.hookManager.registerClass("RX", "HealthBar")
         this.hookManager.registerClass("PF", "PF"); // Unkown Name
         this.hookManager.registerClass("NW", "PrivateChatMessageList");
+
         this.hookManager.registerClass('HR', 'HR');
         this.hookManager.registerClass('$W', 'ItemSpriteManager');
         this.hookManager.registerClass('DP', 'ItemDefMap');
 
+        this.hookManager.registerClass("uW", "LoginScreen");
+
         // Function Hook-ins
+        this.hookManager.registerClassOverrideHook("LoginScreen", "_handleRegisterButtonClicked", this.loginHooks);
+        this.hookManager.registerClassOverrideHook("LoginScreen", "_handleHomeButtonClicked", this.loginHooks);
         this.hookManager.registerClassHook("GameLoop", "_update");
         this.hookManager.registerClassHook("GameLoop", "_draw");
         this.hookManager.registerClassHook("PrivateChatMessageList", "addChatMessage");
@@ -75,6 +80,7 @@ export class Highlite {
         this.hookManager.registerClassHook("ItemManager", "invokeInventoryAction");
 
         // Needs Naming
+
         this.hookManager.registerClassHook("PF", "addItemToInventory");
         this.contextMenuManager.registerContextHook("CG", "_createInventoryItemContextMenuItems", this.contextMenuManager.inventoryContextHook);
         this.contextMenuManager.registerContextHook("CG", "_createGameWorldContextMenuItems", this.contextMenuManager.gameWorldContextHook);
@@ -87,6 +93,15 @@ export class Highlite {
         document.highlite.gameLookups["InventoryActions"] = document.client.get("QA");
         document.highlite.gameLookups["Skills"] = document.client.get("bA");
         document.highlite.gameLookups["EquipmentTypes"] = document.client.get("oP");
+    }
+
+    async loginHooks(fnName: string, ...args: any[]) {
+        if (fnName === "LoginScreen_handleRegisterButtonClicked") {
+            window.open("https://highspell.com/register", "_blank");
+        }
+        if (fnName === "LoginScreen_handleHomeButtonClicked") {
+            window.open("https://highspell.com/", "_blank");
+        }
     }
 
     async start() {

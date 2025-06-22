@@ -188,7 +188,7 @@ async function generatePage() {
     highlite.pluginManager.registerPlugin(WorldMap);
     highlite.pluginManager.registerPlugin(MinimapMarker);
     highlite.pluginManager.registerPlugin(ChatItemTooltip);
-
+  
     // Start the highlite instance
     highlite.start();
 
