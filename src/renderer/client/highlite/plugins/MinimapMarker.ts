@@ -4,6 +4,9 @@ import placeholderPng from "@static/icons/placeholder.png";
 import northArrowPng from "@static/icons/north-arrow.png";
 
 export class MinimapMarker extends Plugin {
+    private readonly MIN_ARROW_HIDE_DISTANCE = 10;
+    private readonly MARKER_OFFSET = 8;
+
     pluginName = "Minimap Marker";
     minimapContainer: HTMLDivElement | null = null;
     minimapMarkerEl: HTMLImageElement | null = null;
@@ -108,8 +111,8 @@ export class MinimapMarker extends Plugin {
             (mm._currentMiniMapCenter.Y - z) * mm._mapZoomFactor,
             0, 0, off);
 
-        const left = mm._minimapHalfWidthPx + off.X - 8;
-        const top = mm._minimapHalfHeightPx + off.Y - 8;
+        const left = mm._minimapHalfWidthPx + off.X - this.MARKER_OFFSET;
+        const top = mm._minimapHalfHeightPx + off.Y - this.MARKER_OFFSET;
         this.minimapMarkerEl.style.left = `${left}px`;
         this.minimapMarkerEl.style.top = `${top}px`;
         this.minimapMarkerEl.style.visibility = 'visible';
@@ -134,7 +137,7 @@ export class MinimapMarker extends Plugin {
             this.destinationPosition.Z - p.Z);
 
         this.minimapArrowEl.style.visibility =
-            (this.settings.hideArrowWhenClose.value && dist < 10) ? 'hidden' : 'visible';
+            (this.settings.hideArrowWhenClose.value && dist < this.MIN_ARROW_HIDE_DISTANCE) ? 'hidden' : 'visible';
     }
 
     gameCameraRotated() {
@@ -149,7 +152,7 @@ export class MinimapMarker extends Plugin {
             this.minimapMarkerEl.style.visibility = "visible";
         }
     }
-    
+
     private createOrEnsureMinimapMarker() {
         if (!this.minimapContainer) return;
         if (this.minimapMarkerEl) return;
