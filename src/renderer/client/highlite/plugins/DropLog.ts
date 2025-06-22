@@ -24,6 +24,7 @@ interface NPCKillData {
     name: string;
     killCount: number;
     drops: { [itemId: number]: { name: string, quantity: number, totalDropped: number } };
+    lastUpdated: number;
 }
 
 export class DropLog extends Plugin {
@@ -32,7 +33,7 @@ export class DropLog extends Plugin {
     private panelContent: HTMLElement | null = null;
     private static readonly DB_STORE_NAME = "drop_logs";
     private isLoggedIn = false;
-    
+
     private attackedNPCs: Set<number> = new Set();
     private npcDataCache: Map<number, any> = new Map(); // entityId -> npc data when first tracked
     private npcHealthTrackers: Map<number, NPCHealthTracker> = new Map(); // entityId -> health tracker
@@ -40,18 +41,18 @@ export class DropLog extends Plugin {
     private dropData: Map<number, NPCKillData> = new Map(); // defId -> kill data
     private lastGroundItems: Map<number, any> = new Map();
     private groundItemTimestamps: Map<number, number> = new Map();
-    
+
     private searchQuery: string = '';
     private filteredData: Array<[number, NPCKillData]> = [];
     private virtualScrollContainer: HTMLElement | null = null;
     private virtualScrollContent: HTMLElement | null = null;
     private itemHeight: number = 120;
     private scrollTop: number = 0;
-    private processedDeaths: Set<number> = new Set();
+    private processedDeaths: Set<string> = new Set();
 
     constructor() {
         super();
-        
+
         this.settings.enabled = {
             text: "Enable Drop Log",
             type: SettingsTypes.checkbox,
@@ -69,14 +70,14 @@ export class DropLog extends Plugin {
             text: "Max Drop Distance",
             type: SettingsTypes.range,
             value: 5,
-            callback: () => {}
+            callback: () => { }
         } as any;
 
         this.settings.dropTimeout = {
             text: "Drop Timeout (ms)",
             type: SettingsTypes.range,
             value: 2000,
-            callback: () => {}
+            callback: () => { }
         } as any;
 
 
@@ -86,10 +87,10 @@ export class DropLog extends Plugin {
         if (!this.settings.enabled?.value) {
             return;
         }
-        
+
         this.createPanel();
         this.addCSSStyles();
-        
+
         if (this.isLoggedIn) {
             this.loadFromDatabase();
         }
@@ -100,7 +101,7 @@ export class DropLog extends Plugin {
 
     GameLoop_update(): void {
         if (!this.settings.enabled?.value || !this.isLoggedIn) return;
-        
+
         this.trackCurrentTarget();
         this.checkForDeaths();
         this.checkForDrops();
@@ -169,7 +170,7 @@ export class DropLog extends Plugin {
                 position,
                 damageListener
             };
-            
+
             if (npc.Hitpoints && npc.Hitpoints.OnReceivedDamageListener) {
                 npc.Hitpoints.OnReceivedDamageListener.add(damageListener);
                 this.npcHealthTrackers.set(entityId, tracker);
@@ -195,7 +196,7 @@ export class DropLog extends Plugin {
                     position: tracker.position,
                     deathTime: Date.now()
                 };
-                
+
                 this.pendingDeaths.set(entityId, trackedNPC);
                 this.cleanupHealthTracker(entityId);
             }
@@ -211,7 +212,7 @@ export class DropLog extends Plugin {
                 if (npc && npc.Hitpoints && npc.Hitpoints.OnReceivedDamageListener) {
                     npc.Hitpoints.OnReceivedDamageListener.remove(tracker.damageListener);
                 }
-                
+
                 this.npcHealthTrackers.delete(entityId);
                 this.attackedNPCs.delete(entityId);
                 this.npcDataCache.delete(entityId);
@@ -224,11 +225,11 @@ export class DropLog extends Plugin {
         if (this.npcHealthTrackers.size === 0) return;
 
         const trackersToRemove: number[] = [];
-        
+
         for (const [entityId, tracker] of this.npcHealthTrackers) {
             try {
                 const npc = (document as any).highlite?.gameHooks?.EntityManager?.Instance?.NPCs?.get(entityId);
-                
+
                 if (!npc) {
                     trackersToRemove.push(entityId);
                 } else {
@@ -257,27 +258,24 @@ export class DropLog extends Plugin {
             const groundItems = (document as any).highlite?.gameHooks?.GroundItemManager?.Instance?._groundItems;
             if (!groundItems) return;
 
-            const itemsToMatch: Array<{item: any, entityId: number}> = [];
+            const itemsToMatch: Array<{ item: any, entityId: number }> = [];
             groundItems.forEach((item: any, itemEntityId: number) => {
                 if (this.lastGroundItems.has(itemEntityId)) return;
 
-                itemsToMatch.push({item, entityId: itemEntityId});
+                itemsToMatch.push({ item, entityId: itemEntityId });
                 this.lastGroundItems.set(itemEntityId, item);
                 this.groundItemTimestamps.set(itemEntityId, Date.now());
             });
 
             const processedDeaths = new Set<number>();
-            for (const {item, entityId} of itemsToMatch) {
-                let foundNearbyDeath = false;
-                
+            for (const { item, entityId } of itemsToMatch) {
                 for (const [npcEntityId, trackedNPC] of this.pendingDeaths) {
                     if (processedDeaths.has(npcEntityId)) continue;
-                    
+
                     if (this.isItemNearPosition(item, trackedNPC.position)) {
                         const itemAppearTime = this.groundItemTimestamps.get(entityId) || 0;
                         if (itemAppearTime >= trackedNPC.deathTime) {
                             this.recordDrop(trackedNPC, item);
-                            foundNearbyDeath = true;
                         }
                     }
                 }
@@ -299,7 +297,7 @@ export class DropLog extends Plugin {
 
         const itemPos = item._currentGamePosition;
         return Math.sqrt(
-            Math.pow(itemPos._x - position.x, 2) + 
+            Math.pow(itemPos._x - position.x, 2) +
             Math.pow(itemPos._z - position.z, 2)
         );
     }
@@ -312,18 +310,23 @@ export class DropLog extends Plugin {
 
     private recordDrop(npc: TrackedNPC, item: any): void {
         try {
+            this.log("recordDrop", npc, item);
             if (!this.dropData.has(npc.defId)) {
                 this.dropData.set(npc.defId, {
                     name: npc.name,
                     killCount: 0,
-                    drops: {}
+                    drops: {},
+                    lastUpdated: Date.now()
                 });
             }
 
             const killData = this.dropData.get(npc.defId)!;
-            if (!this.processedDeaths.has(npc.entityId)) {
+            const deathKey = `${npc.entityId}_${npc.deathTime}`;
+            if (!this.processedDeaths.has(deathKey)) {
+                const oldCount = killData.killCount;
                 killData.killCount++;
-                this.processedDeaths.add(npc.entityId);
+                this.log(`Incrementing kill count for ${npc.name} (defId: ${npc.defId}) from ${oldCount} to ${killData.killCount}`);
+                this.processedDeaths.add(deathKey);
             }
 
             const itemId = item._def?._id || item._entityTypeId;
@@ -340,10 +343,12 @@ export class DropLog extends Plugin {
 
             killData.drops[itemId].quantity += quantity;
             killData.drops[itemId].totalDropped++;
+            killData.lastUpdated = Date.now();
 
             this.updatePanelContent();
             this.saveNPCToDatabase(npc.defId, killData);
         } catch (error) {
+            console.error("Error recording drop", error);
         }
     }
 
@@ -352,28 +357,34 @@ export class DropLog extends Plugin {
 
         const timeout = (this.settings.dropTimeout?.value as number) || 2000;
         const now = Date.now();
-        
+
         const toRemove: number[] = [];
         for (const [entityId, trackedNPC] of this.pendingDeaths) {
             const timeSinceDeath = now - trackedNPC.deathTime;
-            
+
             if (timeSinceDeath > timeout) {
-                const alreadyCounted = this.processedDeaths.has(entityId);
-                
+                const deathKey = `${entityId}_${trackedNPC.deathTime}`;
+                const alreadyCounted = this.processedDeaths.has(deathKey);
+
                 if (!alreadyCounted) {
                     if (!this.dropData.has(trackedNPC.defId)) {
                         this.dropData.set(trackedNPC.defId, {
                             name: trackedNPC.name,
                             killCount: 0,
-                            drops: {}
+                            drops: {},
+                            lastUpdated: Date.now()
                         });
                     }
-                    this.dropData.get(trackedNPC.defId)!.killCount++;
-                    this.processedDeaths.add(entityId);
+                    const killData = this.dropData.get(trackedNPC.defId)!;
+                    const oldCount = killData.killCount;
+                    killData.killCount++;
+                    this.log(`Incrementing kill count (timeout) for ${trackedNPC.name} (defId: ${trackedNPC.defId}) from ${oldCount} to ${killData.killCount}`);
+                    killData.lastUpdated = Date.now();
+                    this.processedDeaths.add(deathKey);
+                    this.saveNPCToDatabase(trackedNPC.defId, killData);
                 }
-                
+
                 this.updatePanelContent();
-                this.saveNPCToDatabase(trackedNPC.defId, this.dropData.get(trackedNPC.defId)!);
                 toRemove.push(entityId);
             }
         }
@@ -389,16 +400,17 @@ export class DropLog extends Plugin {
             if (!panelItems) return;
 
             this.panelContent = panelItems[1] as HTMLElement;
-            
+
             this.panelContent.className = 'drop-log-panel';
             this.panelContent.style.width = '100%';
             this.panelContent.style.height = '100%';
             this.panelContent.style.display = 'flex';
             this.panelContent.style.flexDirection = 'column';
-            
+
             this.injectSpriteStyles();
             this.updatePanelContent();
         } catch (error) {
+            console.error("Error creating panel", error);
         }
     }
 
@@ -409,10 +421,9 @@ export class DropLog extends Plugin {
 
         this.panelContent.innerHTML = '';
 
-        // Header
         const header = document.createElement('div');
         header.className = 'drop-log-header';
-        
+
         if (!this.isLoggedIn) {
             header.innerHTML = `
                 <h3>Drop Log</h3>
@@ -436,11 +447,9 @@ export class DropLog extends Plugin {
         `;
         this.panelContent.appendChild(header);
 
-        // Controls
         const controls = document.createElement('div');
         controls.className = 'drop-log-controls';
-        
-        // Search field
+
         const searchInput = document.createElement('input');
         searchInput.type = 'text';
         searchInput.className = 'drop-log-search';
@@ -451,36 +460,34 @@ export class DropLog extends Plugin {
             this.updateVirtualList();
         };
         controls.appendChild(searchInput);
-        
+
         const clearButton = document.createElement('button');
         clearButton.textContent = 'Clear Log';
         clearButton.className = 'drop-log-clear-btn';
         clearButton.onclick = () => this.clearLog();
         controls.appendChild(clearButton);
+
         this.panelContent.appendChild(controls);
 
-        // Virtual scroll list
         const npcList = document.createElement('div');
         npcList.className = 'drop-log-list';
 
         this.virtualScrollContainer = document.createElement('div');
         this.virtualScrollContainer.className = 'drop-log-virtual-container';
-        
+
         this.virtualScrollContent = document.createElement('div');
         this.virtualScrollContent.className = 'drop-log-virtual-content';
-        
+
         this.virtualScrollContainer.appendChild(this.virtualScrollContent);
         npcList.appendChild(this.virtualScrollContainer);
 
-        // Set up scroll listener for virtual scrolling
         this.virtualScrollContainer.onscroll = () => {
             this.scrollTop = this.virtualScrollContainer!.scrollTop;
             this.updateVirtualList();
         };
 
         this.panelContent.appendChild(npcList);
-        
-        // Initial render
+
         this.updateVirtualList();
     }
 
@@ -508,75 +515,70 @@ export class DropLog extends Plugin {
 
     private getFilteredData(): Array<[number, NPCKillData]> {
         const allData = Array.from(this.dropData.entries());
-        
+
         if (!this.searchQuery) {
-            return allData.sort(([,a], [,b]) => b.killCount - a.killCount);
+            return allData.sort(([, a], [, b]) => b.lastUpdated - a.lastUpdated);
         }
 
         return allData.filter(([defId, killData]) => {
-            // Search in NPC name
             if (killData.name.toLowerCase().includes(this.searchQuery)) {
                 return true;
             }
-            
-            // Search in item names
+
             for (const [itemId, dropData] of Object.entries(killData.drops)) {
                 if (dropData.name.toLowerCase().includes(this.searchQuery)) {
                     return true;
                 }
             }
-            
+
             return false;
-        }).sort(([,a], [,b]) => b.killCount - a.killCount);
+        }).sort(([, a], [, b]) => b.lastUpdated - a.lastUpdated);
     }
 
     private updateVirtualList(): void {
         if (!this.virtualScrollContent || !this.virtualScrollContainer) return;
 
         this.filteredData = this.getFilteredData();
-        
+
         if (this.filteredData.length === 0) {
             this.virtualScrollContent.innerHTML = `
                 <div class="drop-log-empty">
-                    ${this.dropData.size === 0 ? 
-                        'No kills recorded yet. Start fighting some NPCs!' : 
-                        'No results found for your search.'}
+                    ${this.dropData.size === 0 ?
+                    'No kills recorded yet. Start fighting some NPCs!' :
+                    'No results found for your search.'}
                 </div>
             `;
             return;
         }
 
-        // Calculate visible range
         const containerHeight = this.virtualScrollContainer.clientHeight;
         const totalHeight = this.filteredData.length * this.itemHeight;
-        
-        const startIndex = Math.floor(this.scrollTop / this.itemHeight);
-        const endIndex = Math.min(
-            startIndex + Math.ceil(containerHeight / this.itemHeight) + 2, // +2 for buffer
-            this.filteredData.length
-        );
 
-        // Create spacer for total height
+        const startIndex = Math.max(0, Math.floor(this.scrollTop / this.itemHeight) - 1);
+        const visibleCount = Math.ceil(containerHeight / this.itemHeight);
+        const actualStartIndex = Math.max(0, Math.min(startIndex, this.filteredData.length - visibleCount - 3));
+        const actualEndIndex = Math.min(actualStartIndex + visibleCount + 3, this.filteredData.length);
+
         const spacer = document.createElement('div');
         spacer.className = 'drop-log-virtual-spacer';
         spacer.style.height = `${totalHeight}px`;
 
-        // Create container for visible items
         const visibleContainer = document.createElement('div');
-        visibleContainer.style.transform = `translateY(${startIndex * this.itemHeight}px)`;
+        visibleContainer.className = 'drop-log-virtual-items';
+        visibleContainer.style.transform = `translateY(${actualStartIndex * this.itemHeight}px)`;
 
-        // Render visible items
-        for (let i = startIndex; i < endIndex; i++) {
+        for (let i = actualStartIndex; i < actualEndIndex; i++) {
             const [defId, killData] = this.filteredData[i];
             const npcEntry = this.createNPCEntry(defId, killData);
             visibleContainer.appendChild(npcEntry);
         }
 
-        // Update content
         this.virtualScrollContent.innerHTML = '';
         this.virtualScrollContent.appendChild(spacer);
         this.virtualScrollContent.appendChild(visibleContainer);
     }
+
+
 
     private createNPCEntry(defId: number, killData: NPCKillData): HTMLElement {
         const npcEntry = document.createElement('div');
@@ -588,8 +590,7 @@ export class DropLog extends Plugin {
             <span class="npc-name">${killData.name}</span>
             <span class="kill-count">${killData.killCount} kills</span>
         `;
-        
-        // Add remove button
+
         const removeButton = document.createElement('button');
         removeButton.className = 'drop-log-npc-remove';
         removeButton.textContent = '×';
@@ -599,18 +600,18 @@ export class DropLog extends Plugin {
             this.removeNPCFromLog(defId);
         };
         npcHeader.appendChild(removeButton);
-        
+
         npcEntry.appendChild(npcHeader);
 
         const dropsList = document.createElement('div');
         dropsList.className = 'drop-log-drops';
 
-        const sortedDrops = Object.entries(killData.drops).sort(([,a], [,b]) => b.quantity - a.quantity);
-        
+        const sortedDrops = Object.entries(killData.drops).sort(([, a], [, b]) => b.quantity - a.quantity);
+
         for (const [itemId, dropData] of sortedDrops) {
             const dropItem = document.createElement('div');
             dropItem.className = 'drop-log-drop-item';
-            
+
             const sprite = document.createElement('div');
             sprite.className = 'drop-log-item-sprite';
             try {
@@ -619,6 +620,7 @@ export class DropLog extends Plugin {
                     sprite.style.backgroundPosition = pos;
                 }
             } catch (error) {
+                console.error("Error getting item sprite", error);
             }
 
             const info = document.createElement('div');
@@ -653,6 +655,7 @@ export class DropLog extends Plugin {
 
             return true;
         } catch (error) {
+            console.error("Error ensuring object store", error);
             return false;
         }
     }
@@ -667,11 +670,12 @@ export class DropLog extends Plugin {
                 name: killData.name,
                 killCount: killData.killCount,
                 drops: killData.drops,
-                lastUpdated: Date.now()
+                lastUpdated: killData.lastUpdated // Use the actual lastUpdated from killData
             };
 
             await dbManager.database.put(DropLog.DB_STORE_NAME, dataToSave, defId);
         } catch (error) {
+            console.error("Error saving NPC to database", error);
         }
     }
 
@@ -681,25 +685,28 @@ export class DropLog extends Plugin {
 
             const dbManager = (document as any).highlite?.managers?.DatabaseManager as DatabaseManager;
             const allRecords = await dbManager.database.getAll(DropLog.DB_STORE_NAME);
-            
+
             if (!allRecords || allRecords.length === 0) return;
 
             this.dropData.clear();
-            
+
             for (const record of allRecords) {
                 if (record.defId && record.name && typeof record.killCount === 'number') {
+                    this.log(`Loading NPC ${record.name} (defId: ${record.defId}) with ${record.killCount} kills`);
                     this.dropData.set(record.defId, {
                         name: record.name,
                         killCount: record.killCount,
-                        drops: record.drops || {}
+                        drops: record.drops || {},
+                        lastUpdated: record.lastUpdated || Date.now()
                     });
                 }
             }
-            
+
             if (this.panelContent) {
                 this.updatePanelContent();
             }
         } catch (error) {
+            console.error("Error loading from database", error);
         }
     }
 
@@ -710,6 +717,7 @@ export class DropLog extends Plugin {
             const dbManager = (document as any).highlite?.managers?.DatabaseManager as DatabaseManager;
             await dbManager.database.delete(DropLog.DB_STORE_NAME, defId);
         } catch (error) {
+            console.error("Error removing NPC from database", error);
         }
     }
 
@@ -720,6 +728,7 @@ export class DropLog extends Plugin {
             const dbManager = (document as any).highlite?.managers?.DatabaseManager as DatabaseManager;
             await dbManager.database.clear(DropLog.DB_STORE_NAME);
         } catch (error) {
+            console.error("Error clearing database", error);
         }
     }
 
@@ -822,11 +831,14 @@ export class DropLog extends Plugin {
             .drop-log-virtual-container {
                 height: 100%;
                 overflow-y: auto;
+                overflow-x: hidden;
                 position: relative;
+                scroll-behavior: smooth;
             }
 
             .drop-log-virtual-content {
                 position: relative;
+                min-height: 100%;
             }
 
             .drop-log-virtual-spacer {
@@ -835,7 +847,15 @@ export class DropLog extends Plugin {
                 left: 0;
                 right: 0;
                 pointer-events: none;
+                z-index: 1;
             }
+
+            .drop-log-virtual-items {
+                position: relative;
+                z-index: 2;
+            }
+
+
 
             .drop-log-npc-entry {
                 margin-bottom: 15px;
@@ -859,6 +879,7 @@ export class DropLog extends Plugin {
                 top: 50%;
                 right: 8px;
                 transform: translateY(-50%);
+                transform-origin: center;
                 background: #dc3545;
                 color: white;
                 border: none;
@@ -873,11 +894,12 @@ export class DropLog extends Plugin {
                 justify-content: center;
                 line-height: 1;
                 z-index: 10;
+                transition: background-color 0.2s ease, transform 0.2s ease;
             }
 
             .drop-log-npc-remove:hover {
                 background: #c82333;
-                transform: scale(1.1);
+                transform: translateY(-50%) scale(1.1);
             }
 
             .npc-name {
@@ -953,7 +975,7 @@ export class DropLog extends Plugin {
 
     private injectSpriteStyles(): void {
         if (!this.panelContent) return;
-        
+
         try {
             const screenMask = document.getElementById('hs-screen-mask');
             if (!screenMask) return;
@@ -961,7 +983,7 @@ export class DropLog extends Plugin {
             const computedStyle = getComputedStyle(screenMask);
             const cssVariables = [
                 '--hs-url-inventory-items',
-                '--hs-url-inventory-items-outline', 
+                '--hs-url-inventory-items-outline',
                 '--hs-url-inventory-items-width',
                 '--hs-url-inventory-items-height',
                 '--hs-inventory-item-size',
@@ -980,6 +1002,7 @@ export class DropLog extends Plugin {
                 this.panelContent.style.cssText += styleString;
             }
         } catch (error) {
+            console.error("Error injecting sprite styles", error);
         }
     }
 
@@ -995,7 +1018,7 @@ export class DropLog extends Plugin {
         for (const entityId of this.npcHealthTrackers.keys()) {
             this.cleanupHealthTracker(entityId);
         }
-        
+
         this.attackedNPCs.clear();
         this.npcDataCache.clear();
         this.npcHealthTrackers.clear();
@@ -1010,7 +1033,8 @@ export class DropLog extends Plugin {
     SocketManager_loggedIn(): void {
         this.isLoggedIn = true;
         if (!this.settings.enabled?.value) return;
-        
+
+        this.log("Logged in, loading drop data from database...");
         this.loadFromDatabase();
         if (this.panelContent) {
             this.updatePanelContent();
@@ -1019,11 +1043,11 @@ export class DropLog extends Plugin {
 
     SocketManager_handleLoggedOut(): void {
         this.isLoggedIn = false;
-        
+
         for (const entityId of this.npcHealthTrackers.keys()) {
             this.cleanupHealthTracker(entityId);
         }
-        
+
         this.attackedNPCs.clear();
         this.npcDataCache.clear();
         this.npcHealthTrackers.clear();
@@ -1031,7 +1055,7 @@ export class DropLog extends Plugin {
         this.lastGroundItems.clear();
         this.groundItemTimestamps.clear();
         this.processedDeaths.clear();
-        
+
         if (this.panelContent) {
             this.updatePanelContent();
         }
@@ -1042,7 +1066,7 @@ export class DropLog extends Plugin {
             this.panelManager.removeMenuItem("📋");
         } catch (error) {
         }
-        
+
         const style = document.querySelector('style[data-drop-log]');
         if (style) {
             style.remove();
