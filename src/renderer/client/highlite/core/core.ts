@@ -59,6 +59,7 @@ export class Highlite {
         // this.hookManager.registerClass("RX", "HealthBar")
         this.hookManager.registerClass("PF", "PF"); // Unkown Name
         this.hookManager.registerClass("NW", "PrivateChatMessageList");
+        this.hookManager.registerClass('HR', 'HR');
 
         // Function Hook-ins
         this.hookManager.registerClassHook("GameLoop", "_update");
