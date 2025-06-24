@@ -173,15 +173,8 @@ export class XPOrb extends Plugin {
         this.totalXPDisplay.style.wordWrap = 'break-word';
         this.totalXPDisplay.style.maxWidth = '90%';
 
-        ['click', 'pointerdown', 'pointerup'].forEach(eventType => {
-            this.xpOrbElement!.addEventListener(eventType, (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                
-                if (eventType === 'click') {
-                    this.toggleOrb();
-                }
-            }, true); 
+        (document as any).highlite.managers.UIManager.bindOnClickBlockHsMask(this.xpOrbElement, () => {
+            this.toggleOrb();
         });
 
         this.xpOrbElement.addEventListener('mouseenter', () => {

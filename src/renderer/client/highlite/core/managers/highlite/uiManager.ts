@@ -1,7 +1,7 @@
 export enum UIManagerScope {
-    ClientRelative,
-    ClientInternal,
-    ClientOverlay,
+  ClientRelative,
+  ClientInternal,
+  ClientOverlay,
 }
 
 export class UIManager {
@@ -15,6 +15,20 @@ export class UIManager {
     document.highlite.managers.UIManager = this;
   }
 
+  private preventDefault(e: Event) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  bindOnClickBlockHsMask(element: HTMLElement, callback: (e: Event) => void) {
+    element.addEventListener("click", (e) => {
+      callback(e);
+      this.preventDefault(e);
+    });
+    element.addEventListener("pointerdown",  this.preventDefault);
+    element.addEventListener("pointerup",  this.preventDefault);
+  }
+
   // Create Element
   createElement(scope: UIManagerScope): HTMLElement {
     const element = document.createElement("div");
@@ -24,16 +38,16 @@ export class UIManager {
         element.classList.add("highlite-ui-client-relative");
 
         element.addEventListener("keydown", (e) => {
-            e.stopPropagation();
+          e.stopPropagation();
         });
         element.addEventListener("keyup", (e) => {
-            e.stopPropagation();
+          e.stopPropagation();
         });
         element.addEventListener("keyup", (e) => {
-            e.stopPropagation();
+          e.stopPropagation();
         });
         element.addEventListener("keypress", (e) => {
-            e.stopPropagation();
+          e.stopPropagation();
         });
 
         document.getElementById("main")?.appendChild(element);
@@ -41,9 +55,9 @@ export class UIManager {
       case UIManagerScope.ClientInternal:
         element.classList.add("highlite-ui-client-internal");
         if (!document.getElementById("hs-screen-mask")) {
-            throw new Error("Highlite UI Manager: #hs-screen-mask not found");
+          throw new Error("Highlite UI Manager: #hs-screen-mask not found");
         } else {
-            document.getElementById("hs-screen-mask")?.appendChild(element);
+          document.getElementById("hs-screen-mask")?.appendChild(element);
         }
         break;
       case UIManagerScope.ClientOverlay:
