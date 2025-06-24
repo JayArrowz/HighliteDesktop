@@ -585,6 +585,5 @@ export class XPOrb extends Plugin {
         this.activeXPDrops = [];
         this.skillXPData.clear();
         this.totalXP = 0;
-        this.sessionXP = 0;
     }
 } 
