@@ -173,12 +173,18 @@ export class XPOrb extends Plugin {
         this.totalXPDisplay.style.wordWrap = 'break-word';
         this.totalXPDisplay.style.maxWidth = '90%';
 
-        this.xpOrbElement.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            this.toggleOrb();
+        ['click', 'pointerdown', 'pointerup', 'pointermove', 'pointerover', 'pointerout', 'pointercancel'].forEach(eventType => {
+            this.xpOrbElement!.addEventListener(eventType, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                // Only handle the actual click
+                if (eventType === 'click') {
+                    this.toggleOrb();
+                }
+            }, true); // Use capture phase
         });
-
+        
         this.xpOrbElement.addEventListener('mouseenter', () => {
             if (this.xpOrbElement) {
                 this.xpOrbElement.style.transform = 'scale(1.1)';
