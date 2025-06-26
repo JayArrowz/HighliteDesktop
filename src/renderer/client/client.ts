@@ -16,6 +16,8 @@ import { MinimapMarker } from "./highlite/plugins/MinimapMarker";
 import { DropLog } from "./highlite/plugins/DropLog";
 import { ChatItemTooltip } from "./highlite/plugins/ChatItemTooltip";
 import { XPOrb } from "./highlite/plugins/XPOrb";
+import { TreasureMapHelper } from "./highlite/plugins/TreasureMapLocator";
+
 import "../../../static/css/index.css"
 import "../../../static/css/overrides.css"
 import "@fortawesome/fontawesome-free/css/all.css"
@@ -192,6 +194,8 @@ async function generatePage() {
     highlite.pluginManager.registerPlugin(DropLog);
     highlite.pluginManager.registerPlugin(ChatItemTooltip);
     highlite.pluginManager.registerPlugin(XPOrb);
+    highlite.pluginManager.registerPlugin(TreasureMapHelper);
+  
     // Start the highlite instance
     highlite.start();
 
