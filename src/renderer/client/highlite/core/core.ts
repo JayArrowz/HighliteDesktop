@@ -48,7 +48,7 @@ export class Highlite {
         this.hookManager.registerClass("aD", "WorldEntityManager"); // probably out of date
         this.hookManager.registerClass("Mz", "SpellManager"); // probably out of date
         this.hookManager.registerClass("wk", "SpellMeshManager"); // probably out of date
-        this.hookManager.registerClass("K", "GameLoop");
+        this.hookManager.registerClass("pW", "GameLoop");
         this.hookManager.registerClass("zG", "ChatManager");
         this.hookManager.registerClass("Dz", "RangeManager"); // probably out of date
         this.hookManager.registerClass("FG", "SocketManager");
