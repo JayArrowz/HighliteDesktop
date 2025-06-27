@@ -66,7 +66,34 @@ export class ChatItemTooltip extends Plugin {
     }
 
     SocketManager_loggedIn(): void {
+        this.log("Player logged in - resetting chat tooltip state");
+        
+        this.processedIds.clear();
+        
+        const processedElements = document.querySelectorAll('[data-chat-tooltip-processed]');
+        processedElements.forEach(element => {
+            element.removeAttribute('data-chat-tooltip-processed');
+        });
+        
+        const existingLinks = document.querySelectorAll('.hs-item-link');
+        existingLinks.forEach(link => {
+            if (link.parentNode) {
+                const textNode = document.createTextNode(link.textContent || '');
+                link.parentNode.replaceChild(textNode, link);
+            }
+        });
+        
         this.ensureTooltip();
+        this.log("Chat tooltip state reset complete");
+    }
+
+    SocketManager_handleLoggedOut(): void {
+        this.log("Player logged out - cleaning up chat tooltip state");
+        this.processedIds.clear();
+        this.hideTooltip();
+        this.hideInventoryOverlays();
+        this.isCtrlPressed = false;
+        this.log("Chat tooltip cleanup complete");
     }
 
     GameLoop_draw() {
@@ -310,7 +337,14 @@ export class ChatItemTooltip extends Plugin {
     }
 
     private ensureTooltip() {
-        if (this.tooltipEl) return;
+        if (this.tooltipEl && this.tooltipEl.parentElement) {
+            return;
+        }
+        
+        if (this.tooltipEl) {
+            this.tooltipEl.remove();
+            this.tooltipEl = null;
+        }
         
         const screenMask = document.getElementById('hs-screen-mask');        
         this.tooltipEl = document.createElement('div');
@@ -322,6 +356,8 @@ export class ChatItemTooltip extends Plugin {
         
         const container = screenMask || document.body;
         container.appendChild(this.tooltipEl);
+        
+        this.log(`Tooltip created and attached to: ${container.id || 'body'}`);
     }
 
     private showTooltip(anchor: HTMLElement, event?: MouseEvent) {
