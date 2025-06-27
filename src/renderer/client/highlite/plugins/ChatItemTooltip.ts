@@ -87,7 +87,7 @@ export class ChatItemTooltip extends Plugin {
         this.log("Chat tooltip state reset complete");
     }
 
-    SocketManager_handleLoggedOut(): void {
+    SocketManager_loggedOut(): void {
         this.log("Player logged out - cleaning up chat tooltip state");
         this.processedIds.clear();
         this.hideTooltip();
