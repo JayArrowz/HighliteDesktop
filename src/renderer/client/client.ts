@@ -20,6 +20,7 @@ import { TreasureMapHelper } from "./highlite/plugins/TreasureMapHelper";
 
 import "../../../static/css/index.css"
 import "../../../static/css/overrides.css"
+import "../../../static/css/item-tooltip.css"
 import "@fortawesome/fontawesome-free/css/all.css"
 
 import "./helpers/titlebarHelpers.js";

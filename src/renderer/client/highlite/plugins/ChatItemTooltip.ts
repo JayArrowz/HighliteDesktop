@@ -9,8 +9,7 @@ export class ChatItemTooltip extends Plugin {
     pluginName = "Chat Item Tooltip";
 
     private processedIds: Set<number> = new Set();
-    private tooltipEl: HTMLDivElement | null = null;
-    private currentItemId: number | null = null;
+    private currentTooltip: { hide: () => void } | null = null;
     private isCtrlPressed: boolean = false;
     private inventoryOverlays: HTMLDivElement[] = [];
     private overlaysCreated: boolean = false;
@@ -66,7 +65,33 @@ export class ChatItemTooltip extends Plugin {
     }
 
     SocketManager_loggedIn(): void {
-        this.ensureTooltip();
+        this.log("Player logged in - resetting chat tooltip state");
+        
+        this.processedIds.clear();
+        
+        const processedElements = document.querySelectorAll('[data-chat-tooltip-processed]');
+        processedElements.forEach(element => {
+            element.removeAttribute('data-chat-tooltip-processed');
+        });
+        
+        const existingLinks = document.querySelectorAll('.hs-item-link');
+        existingLinks.forEach(link => {
+            if (link.parentNode) {
+                const textNode = document.createTextNode(link.textContent || '');
+                link.parentNode.replaceChild(textNode, link);
+            }
+        });
+        
+        this.log("Chat tooltip state reset complete");
+    }
+
+    SocketManager_handleLoggedOut(): void {
+        this.log("Player logged out - cleaning up chat tooltip state");
+        this.processedIds.clear();
+        this.hideTooltip();
+        this.hideInventoryOverlays();
+        this.isCtrlPressed = false;
+        this.log("Chat tooltip cleanup complete");
     }
 
     GameLoop_draw() {
@@ -113,8 +138,8 @@ export class ChatItemTooltip extends Plugin {
                 
                 try {
                     const itemDef = (document as any).highlite.gameHooks.ItemDefMap.ItemDefMap.get(id);
-                    if (itemDef && itemDef.Name) {
-                        displayText = `[${itemDef.Name}]`;
+                    if (itemDef && itemDef._name) {
+                        displayText = `[${itemDef._name}]`;
                     }
                 } catch (error) {
                     this.log(`Error getting item name for ID ${id}: ${error}`);
@@ -131,7 +156,6 @@ export class ChatItemTooltip extends Plugin {
                 
                 span.addEventListener('mouseenter', (e) => this.showTooltip(span, e));
                 span.addEventListener('mouseleave', () => this.hideTooltip());
-                span.addEventListener('mousemove', (e) => this.updateTooltipPosition(e));
                 frag.appendChild(span);
 
                 lastIndex = offset + match.length;
@@ -309,215 +333,44 @@ export class ChatItemTooltip extends Plugin {
         document.head.appendChild(style);
     }
 
-    private ensureTooltip() {
-        if (this.tooltipEl) return;
-        
-        const screenMask = document.getElementById('hs-screen-mask');        
-        this.tooltipEl = document.createElement('div');
-        this.tooltipEl.className = 'hs-item-tooltip';
-        this.tooltipEl.style.position = 'fixed';
-        this.tooltipEl.style.pointerEvents = 'none';
-        this.tooltipEl.style.zIndex = '20000';
-        this.tooltipEl.style.display = 'none';
-        
-        const container = screenMask || document.body;
-        container.appendChild(this.tooltipEl);
-    }
-
     private showTooltip(anchor: HTMLElement, event?: MouseEvent) {
         const idStr = anchor.dataset.itemId;
         if (!idStr) return;
         const id = parseInt(idStr, 10);
         if (isNaN(id)) return;
 
-        this.currentItemId = id;
-
-        let itemDef: any = null;
-        try {
-            itemDef = (document as any).highlite.gameHooks.ItemDefMap.ItemDefMap.get(id);
-        } catch (error) {
-            this.log(`Error getting item definition for ID ${id}: ${error}`);
-        }
-
-        if (!itemDef) {
-            this.log(`No item definition found for ID ${id}`);
-            return;
-        }
-
-        if (!this.tooltipEl) return;
-        this.tooltipEl.innerHTML = '';
-
-        const header = document.createElement('div');
-        header.className = 'hs-item-tooltip-header';
-
-        const spriteDiv = document.createElement('div');
-        spriteDiv.className = 'hs-item-tooltip-sprite';
-        
-        try {
-            const pos = (document as any).highlite.gameHooks.ItemSpriteManager.getCSSBackgroundPositionForItem(id);
-            if (pos) {
-                spriteDiv.style.backgroundPosition = pos;
-            }
-        } catch (error) {
-            this.log(`Error getting item sprite for ID ${id}: ${error}`);
-        }
-        
-        header.appendChild(spriteDiv);
-
-        const titleDiv = document.createElement('div');
-        titleDiv.className = 'hs-item-tooltip-title';
-
-        const nameDiv = document.createElement('div');
-        nameDiv.className = 'hs-item-tooltip-name';
-        nameDiv.textContent = itemDef.NameCapitalized || itemDef.Name || `Item ${id}`;
-        titleDiv.appendChild(nameDiv);
-
-        const idDiv = document.createElement('div');
-        idDiv.className = 'hs-item-tooltip-id';
-        idDiv.textContent = `ID: ${id}`;
-        titleDiv.appendChild(idDiv);
-
-        header.appendChild(titleDiv);
-        this.tooltipEl.appendChild(header);
-
-        if (itemDef.Description) {
-            const descDiv = document.createElement('div');
-            descDiv.className = 'hs-item-tooltip-description';
-            descDiv.textContent = itemDef.Description;
-            this.tooltipEl.appendChild(descDiv);
-        }
-
-        if (itemDef.Cost && itemDef.Cost > 0) {
-            const costSection = document.createElement('div');
-            costSection.className = 'hs-item-tooltip-section';
-            costSection.innerHTML = `<span class="hs-item-tooltip-label">Cost:</span> <span class="hs-item-tooltip-cost">${itemDef.Cost.toLocaleString()} coins</span>`;
-            this.tooltipEl.appendChild(costSection);
-        }
-
-        if (itemDef.EquippableRequirements && itemDef.EquippableRequirements.length > 0) {
-            const reqSection = document.createElement('div');
-            reqSection.className = 'hs-item-tooltip-section';
-            reqSection.innerHTML = '<span class="hs-item-tooltip-label">Requirements:</span>';
-            
-            itemDef.EquippableRequirements.forEach((req: any) => {
-                const reqDiv = document.createElement('div');
-                reqDiv.className = 'hs-item-tooltip-requirement';
-                reqDiv.textContent = `• Level ${req.Amount} ${this.getSkillName(req.Skill)}`;
-                reqSection.appendChild(reqDiv);
-            });
-            
-            this.tooltipEl.appendChild(reqSection);
-        }
-
-        if (itemDef.EquippableEffects && itemDef.EquippableEffects.length > 0) {
-            const effectSection = document.createElement('div');
-            effectSection.className = 'hs-item-tooltip-section';
-            effectSection.innerHTML = '<span class="hs-item-tooltip-label">Effects:</span>';
-            
-            itemDef.EquippableEffects.forEach((effect: any) => {
-                const effectDiv = document.createElement('div');
-                effectDiv.className = 'hs-item-tooltip-effect';
-                const sign = effect.Amount > 0 ? '+' : '';
-                effectDiv.textContent = `• ${sign}${effect.Amount} ${this.getSkillName(effect.Skill)}`;
-                effectSection.appendChild(effectDiv);
-            });
-            
-            this.tooltipEl.appendChild(effectSection);
-        }
-
-        if (itemDef.WeaponSpeed && itemDef.WeaponSpeed > 0) {
-            const speedSection = document.createElement('div');
-            speedSection.className = 'hs-item-tooltip-section';
-            speedSection.innerHTML = `<span class="hs-item-tooltip-label">Attack Speed:</span> <span class="hs-item-tooltip-value">${itemDef.WeaponSpeed}</span>`;
-            this.tooltipEl.appendChild(speedSection);
-        }
-
-        if (itemDef.EquipmentType !== null && itemDef.EquipmentType !== undefined) {
-            const typeSection = document.createElement('div');
-            typeSection.className = 'hs-item-tooltip-section';
-            typeSection.innerHTML = `<span class="hs-item-tooltip-label">Type:</span> <span class="hs-item-tooltip-value">${this.getEquipmentTypeName(itemDef.EquipmentType)}</span>`;
-            this.tooltipEl.appendChild(typeSection);
-        }
-
-        const tagsDiv = document.createElement('div');
-        tagsDiv.className = 'hs-item-tooltip-tags';
-
-        if (itemDef.IsMembers) {
-            const tag = document.createElement('span');
-            tag.className = 'hs-item-tooltip-tag members';
-            tag.textContent = 'Members';
-            tagsDiv.appendChild(tag);
-        }
-
-        if (itemDef.IsStackable) {
-            const tag = document.createElement('span');
-            tag.className = 'hs-item-tooltip-tag stackable';
-            tag.textContent = 'Stackable';
-            tagsDiv.appendChild(tag);
-        }
-
-        if (itemDef.IsTradeable) {
-            const tag = document.createElement('span');
-            tag.className = 'hs-item-tooltip-tag tradeable';
-            tag.textContent = 'Tradeable';
-            tagsDiv.appendChild(tag);
-        }
-
-        if (itemDef.CanIOU) {
-            const tag = document.createElement('span');
-            tag.className = 'hs-item-tooltip-tag iou';
-            tag.textContent = 'IOU';
-            tagsDiv.appendChild(tag);
-        }
-
-        if (tagsDiv.children.length > 0) {
-            this.tooltipEl.appendChild(tagsDiv);
-        }
-
-        this.tooltipEl.style.display = 'block';
+        // Use coordinates from the mouse event if available, otherwise use element position
+        let x = 0;
+        let y = 0;
         
         if (event) {
-            this.updateTooltipPosition(event);
+            x = event.clientX;
+            y = event.clientY;
+        } else {
+            const rect = anchor.getBoundingClientRect();
+            x = rect.left + rect.width / 2;
+            y = rect.top;
         }
-    }
 
-    private getSkillName(skillId: number): string {
-        return (document as any).highlite.gameLookups.Skills[skillId];
-    }
-
-    private getEquipmentTypeName(typeId: number): string {
-        return (document as any).highlite.gameLookups.EquipmentTypes[typeId];
-    }
-
-    private updateTooltipPosition(event: MouseEvent) {
-        if (!this.tooltipEl || this.tooltipEl.style.display === 'none') return;
-
-        const tooltip = this.tooltipEl;
-        const margin = 10;
-        
-        const tooltipRect = tooltip.getBoundingClientRect();
-        const viewportWidth = window.innerWidth;
-        
-        let x = event.clientX + margin;
-        let y = event.clientY - tooltipRect.height - margin;
-        
-        if (x + tooltipRect.width > viewportWidth) {
-            x = event.clientX - tooltipRect.width - margin;
+        // Hide current tooltip if exists
+        if (this.currentTooltip) {
+            this.currentTooltip.hide();
         }
-        
-        if (y < 0) {
-            y = event.clientY + margin;
+
+        // Use UIManager to draw the tooltip
+        try {
+            const uiManager = (document as any).highlite.managers.UIManager;
+            this.currentTooltip = uiManager.drawItemTooltip(id, x, y);
+        } catch (error) {
+            this.log(`Error showing tooltip: ${error}`);
         }
-        
-        tooltip.style.left = x + 'px';
-        tooltip.style.top = y + 'px';
     }
 
     private hideTooltip() {
-        if (this.tooltipEl) {
-            this.tooltipEl.style.display = 'none';
+        if (this.currentTooltip) {
+            this.currentTooltip.hide();
+            this.currentTooltip = null;
         }
-        this.currentItemId = null;
     }
 
     stop(): void {
@@ -526,10 +379,9 @@ export class ChatItemTooltip extends Plugin {
         });
         this.eventListeners = [];
 
-        if (this.tooltipEl && this.tooltipEl.parentElement) {
-            this.tooltipEl.parentElement.removeChild(this.tooltipEl);
-            this.tooltipEl = null;
-        }
+        // Hide any active tooltip
+        this.hideTooltip();
+        
         this.removeDebug();
         this.cleanupInventoryOverlays();
     }
@@ -569,17 +421,19 @@ export class ChatItemTooltip extends Plugin {
         const chatList: any[] = (document as any).highlite?.gameHooks?.HR?.Manager?.getController()?.ChatMenuController?._chatMenuQuadrant?.getChatMenu()?.getChatMessages();
         
         let currentItemInfo = 'none';
-        if (this.currentItemId) {
-            try {
-                const itemDef = (document as any).highlite?.gameHooks?.ItemDefMap?.ItemDefMap?.get(this.currentItemId);
+        try {
+            const uiManager = (document as any).highlite?.managers?.UIManager;
+            const currentTooltipItemId = uiManager?.getCurrentItemTooltipId();
+            if (currentTooltipItemId) {
+                const itemDef = (document as any).highlite?.gameHooks?.ItemDefMap?.ItemDefMap?.get(currentTooltipItemId);
                 if (itemDef) {
-                    currentItemInfo = `${this.currentItemId} (${itemDef.NameCapitalized || itemDef.Name})`;
+                    currentItemInfo = `${currentTooltipItemId} (${itemDef._nameCapitalized || itemDef._name})`;
                 } else {
-                    currentItemInfo = `${this.currentItemId} (not found)`;
+                    currentItemInfo = `${currentTooltipItemId} (not found)`;
                 }
-            } catch (error) {
-                currentItemInfo = `${this.currentItemId} (error)`;
             }
+        } catch (error) {
+            // Ignore errors in debug display
         }
         
         let inventoryItemCount = 0;
@@ -602,8 +456,7 @@ export class ChatItemTooltip extends Plugin {
             `Chat Messages: ${chatList?.length || 0}`,
             `Processed IDs: ${this.processedIds.size}`,
             `Current Item: ${currentItemInfo}`,
-            `Tooltip Visible: ${this.tooltipEl?.style.display !== 'none'}`,
-            `Container: ${this.tooltipEl?.parentElement?.id || 'none'}`
+            `Item Tooltip Active: ${this.currentTooltip !== null}`
         ].join('\n');
         
         this.debugEl.textContent = debugInfo;
@@ -752,7 +605,6 @@ export class ChatItemTooltip extends Plugin {
 
     private initializePlugin() {
         this.processedIds.clear();
-        this.ensureTooltip();
         if (!document.querySelector('style[data-chat-tooltip]')) {
             this.addCSSStyles();
         }
