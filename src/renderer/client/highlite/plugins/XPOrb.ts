@@ -30,6 +30,8 @@ export class XPOrb extends Plugin {
     private isOrbOpen: boolean = true;
     private totalXP: number = 0;
     private sessionXP: number = 0;
+    private currentPlayerName: string | null = null;
+    private migrationCompleted: boolean = false;
     
     private readonly XP_DROP_DURATION = 3000; // 3 seconds
     private readonly XP_DROP_FADE_START = 2000; // Start fading after 2 seconds
@@ -86,6 +88,7 @@ export class XPOrb extends Plugin {
     SocketManager_loggedIn(): void {
         this.log("Player logged in, setting up XP tracking");
         setTimeout(() => {
+            this.updatePlayerName();
             this.loadSessionXPFromDatabase();
             this.setupXPTracking();
             this.createXPTrackerUI();
@@ -95,12 +98,82 @@ export class XPOrb extends Plugin {
     SocketManager_handleLoggedOut(): void {
         this.log("Player logged out, cleaning up XP tracking");
         this.saveSessionXPToDatabase();
+        this.currentPlayerName = null;
+        this.migrationCompleted = false;
         this.cleanup();
     }
 
     GameLoop_update(): void {
         if (!this.settings.enable.value) return;
         this.updateXPDrops();
+    }
+
+    private getCurrentPlayerName(): string | null {
+        try {
+            const playerName = (document as any).highlite?.gameHooks?.EntityManager?.Instance?.MainPlayer?.Name;
+            return playerName || null;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    private updatePlayerName(): void {
+        const newPlayerName = this.getCurrentPlayerName();
+        if (newPlayerName && newPlayerName !== this.currentPlayerName) {
+            this.currentPlayerName = newPlayerName;
+            this.migrationCompleted = false;
+            
+            // Reset session XP for new player and reload their data
+            this.sessionXP = 0;
+            this.loadSessionXPFromDatabase();
+        }
+    }
+
+    private generatePlayerKey(): string {
+        return `${this.currentPlayerName || 'unknown'}_${this.pluginName}_sessionXP`;
+    }
+
+    private async migrateOldSessionXP(): Promise<void> {
+        if (this.migrationCompleted || !this.currentPlayerName) return;
+
+        try {
+            const dbManager = (document as any).highlite?.managers?.DatabaseManager;
+            if (!dbManager || !dbManager.database) {
+                this.migrationCompleted = true;
+                return;
+            }
+
+            const oldKey = `${this.pluginName}_sessionXP`;
+            const newKey = this.generatePlayerKey();
+
+            // Check if old data exists
+            const oldData = await dbManager.database.get('settings', oldKey);
+            
+            if (oldData && typeof oldData.sessionXP === 'number') {
+                // Check if player-specific data already exists
+                const existingData = await dbManager.database.get('settings', newKey);
+                
+                if (!existingData) {
+                    // Migrate old data to new player-specific format
+                    const migratedData = {
+                        playerName: this.currentPlayerName,
+                        sessionXP: oldData.sessionXP,
+                        lastUpdated: oldData.lastUpdated || Date.now()
+                    };
+                    
+                    await dbManager.database.put('settings', migratedData, newKey);
+                    this.log(`XPOrb: Migrated session XP data for player ${this.currentPlayerName}: ${oldData.sessionXP} XP`);
+                }
+                
+                // Remove old data after migration
+                await dbManager.database.delete('settings', oldKey);
+            }
+
+            this.migrationCompleted = true;
+        } catch (error) {
+            console.error("Error during XP Orb migration:", error);
+            this.migrationCompleted = true; // Mark as completed even if failed to avoid infinite retries
+        }
     }
 
     private createXPTrackerUI(): void {
@@ -143,8 +216,6 @@ export class XPOrb extends Plugin {
 
         this.updateTotalXP();
     }
-
-
 
     private createXPOrb(): void {
         if (!this.xpOrbContainer) return;
@@ -217,8 +288,11 @@ export class XPOrb extends Plugin {
         this.sessionXPDisplay.style.whiteSpace = 'nowrap';
         this.sessionXPDisplay.style.pointerEvents = 'none';
         this.sessionXPDisplay.style.zIndex = '10001';
+        
+        // Show player name in the session XP display
+        const playerName = this.currentPlayerName || 'Unknown';
         this.sessionXPDisplay.innerHTML = `
-            <div style="font-size: 8px; opacity: 0.8;">Total</div>
+            <div style="font-size: 8px; opacity: 0.8;">${playerName}</div>
             <div>${this.formatNumber(this.sessionXP)} XP</div>
         `;
 
@@ -485,8 +559,9 @@ export class XPOrb extends Plugin {
     private updateSessionXPDisplay(): void {
         if (!this.sessionXPDisplay) return;
 
+        const playerName = this.currentPlayerName || 'Unknown';
         this.sessionXPDisplay.innerHTML = `
-            <div style="font-size: 8px; opacity: 0.8;">Total</div>
+            <div style="font-size: 8px; opacity: 0.8;">${playerName}</div>
             <div>${this.formatNumber(this.sessionXP)} XP</div>
         `;
     }
@@ -498,15 +573,19 @@ export class XPOrb extends Plugin {
 
     private async saveSessionXPToDatabase(): Promise<void> {
         try {
+            if (!this.currentPlayerName) return;
+
             const dbManager = (document as any).highlite?.managers?.DatabaseManager;
             if (!dbManager || !dbManager.database) return;
 
             const sessionData = {
+                playerName: this.currentPlayerName,
                 sessionXP: this.sessionXP,
                 lastUpdated: Date.now()
             };
 
-            await dbManager.database.put('settings', sessionData, `${this.pluginName}_sessionXP`);
+            const key = this.generatePlayerKey();
+            await dbManager.database.put('settings', sessionData, key);
         } catch (error) {
             console.error("Error saving session XP to database:", error);
         }
@@ -514,15 +593,26 @@ export class XPOrb extends Plugin {
 
     private async loadSessionXPFromDatabase(): Promise<void> {
         try {
+            if (!this.currentPlayerName) return;
+
+            // First, perform migration if needed
+            await this.migrateOldSessionXP();
+
             const dbManager = (document as any).highlite?.managers?.DatabaseManager;
             if (!dbManager || !dbManager.database) return;
 
-            const sessionData = await dbManager.database.get('settings', `${this.pluginName}_sessionXP`);
+            const key = this.generatePlayerKey();
+            const sessionData = await dbManager.database.get('settings', key);
             
-            if (sessionData && typeof sessionData.sessionXP === 'number') {
+            if (sessionData && typeof sessionData.sessionXP === 'number' && sessionData.playerName === this.currentPlayerName) {
                 this.sessionXP = sessionData.sessionXP;
                 this.updateSessionXPDisplay();
-                this.log(`Loaded session XP from database: ${this.sessionXP}`);
+                this.log(`Loaded session XP from database for ${this.currentPlayerName}: ${this.sessionXP}`);
+            } else {
+                // No data for this player, start fresh
+                this.sessionXP = 0;
+                this.updateSessionXPDisplay();
+                this.log(`No session XP data found for ${this.currentPlayerName}, starting fresh`);
             }
         } catch (error) {
             console.error("Error loading session XP from database:", error);
@@ -534,7 +624,7 @@ export class XPOrb extends Plugin {
             this.sessionXP = 0;
             this.updateSessionXPDisplay();
             await this.saveSessionXPToDatabase();
-            this.log("Session XP reset to 0");
+            this.log(`Session XP reset to 0 for player ${this.currentPlayerName}`);
         } catch (error) {
             console.error("Error resetting session XP:", error);
         }
