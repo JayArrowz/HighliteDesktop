@@ -718,7 +718,7 @@ export class DropLog extends Plugin {
                 return;
             }
 
-            console.log(`DropLog: Found ${oldKeys.length} old records to migrate for player ${this.currentPlayerName}`);
+            this.log(`DropLog: Found ${oldKeys.length} old records to migrate for player ${this.currentPlayerName}`);
 
             // Migrate old data to new player-specific format
             for (const oldKey of oldKeys) {
@@ -753,7 +753,7 @@ export class DropLog extends Plugin {
                 }
             }
 
-            console.log(`DropLog: Successfully migrated ${migratedCount} records for player ${this.currentPlayerName}`);
+            this.log(`DropLog: Successfully migrated ${migratedCount} records for player ${this.currentPlayerName}`);
             this.migrationCompleted = true;
         } catch (error) {
             console.error("Error during migration:", error);
