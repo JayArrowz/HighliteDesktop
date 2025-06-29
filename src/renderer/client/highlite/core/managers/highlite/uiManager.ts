@@ -1,4 +1,4 @@
-import { ItemTooltip } from "./ItemTooltip";
+import { ItemTooltip } from "./itemTooltip";
 
 export enum UIManagerScope {
   ClientRelative,
