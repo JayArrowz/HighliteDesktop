@@ -29,6 +29,7 @@ interface NPCKillData {
 
 export class DropLog extends Plugin {
     pluginName = "Drop Log";
+    author = "JayArrowz";
     private panelManager: PanelManager = new PanelManager();
     private panelContent: HTMLElement | null = null;
     private static readonly DB_STORE_NAME = "drop_logs";
@@ -615,7 +616,7 @@ export class DropLog extends Plugin {
             const sprite = document.createElement('div');
             sprite.className = 'drop-log-item-sprite';
             try {
-                const pos = (document as any).highlite?.gameHooks?.ItemSpriteManager?.getCSSBackgroundPositionForItem(parseInt(itemId));
+                const pos = (document as any).highlite?.gameHooks?.InventoryItemSpriteManager?.getCSSBackgroundPositionForItem(parseInt(itemId));
                 if (pos) {
                     sprite.style.backgroundPosition = pos;
                 }
