@@ -66,6 +66,8 @@ function pluginHotReloadPlugin() {
             console.warn(`[Plugin HMR] Could not detect plugin class in ${file}`)
           }
         })
+
+        return []
       }
     }
   }

@@ -26,6 +26,27 @@ import "@static/css/item-tooltip.css"
 import "./helpers/titlebarHelpers.js";
 import "@iconify/iconify";
 
+// Plugin registry - single source of truth for all plugins
+const PLUGIN_REGISTRY = [
+    { class: HPAlert, path: './highlite/plugins/HPAlert' },
+    { class: IdleAlert, path: './highlite/plugins/IdleAlert/IdleAlert' },
+    { class: Lookup, path: './highlite/plugins/Lookup' },
+    { class: Nameplates, path: './highlite/plugins/Nameplates' },
+    { class: EnhancedHPBars, path: './highlite/plugins/EnhancedHPBars' },
+    { class: EnhancedLoginScreen, path: './highlite/plugins/EnhancedLoginScreen' },
+    { class: ContextMenuOptions, path: './highlite/plugins/ContextMenuOptions' },
+    { class: TradeAlerts, path: './highlite/plugins/TradeAlerts' },
+    { class: PMAlerts, path: './highlite/plugins/PMAlerts' },
+    { class: CoinCounter, path: './highlite/plugins/CoinCounter' },
+    { class: ExperienceTracker, path: './highlite/plugins/ExperienceTracker' },
+    { class: WorldMap, path: './highlite/plugins/Map' },
+    { class: MinimapMarker, path: './highlite/plugins/MinimapMarker' },
+    { class: DropLog, path: './highlite/plugins/DropLog' },
+    { class: ChatItemTooltip, path: './highlite/plugins/ChatItemTooltip' },
+    { class: XPOrb, path: './highlite/plugins/XPOrb' },
+    { class: TreasureMapHelper, path: './highlite/plugins/TreasureMapHelper' },
+    { class: FPSLimiter, path: './highlite/plugins/FPSLimiter' }
+];
 
 async function obtainGameClient() {
     const highspellAssetsURL = "https://highspell.com:3002/assetsClient";
@@ -195,26 +216,7 @@ async function generatePage() {
         (document as any).highlite.core = highlite;
     }
 
-    const plugins = [
-        { class: HPAlert, file: 'HPAlert' },
-        { class: IdleAlert, file: 'IdleAlert/IdleAlert' },
-        { class: Lookup, file: 'Lookup' },
-        { class: Nameplates, file: 'Nameplates' },
-        { class: EnhancedHPBars, file: 'EnhancedHPBars' },
-        { class: EnhancedLoginScreen, file: 'EnhancedLoginScreen' },
-        { class: ContextMenuOptions, file: 'ContextMenuOptions' },
-        { class: TradeAlerts, file: 'TradeAlerts' },
-        { class: PMAlerts, file: 'PMAlerts' },
-        { class: CoinCounter, file: 'CoinCounter' },
-        { class: ExperienceTracker, file: 'ExperienceTracker' },
-        { class: WorldMap, file: 'Map' },
-        { class: MinimapMarker, file: 'MinimapMarker' },
-        { class: DropLog, file: 'DropLog' },
-        { class: ChatItemTooltip, file: 'ChatItemTooltip' },
-        { class: XPOrb, file: 'XPOrb' },
-        { class: TreasureMapHelper, file: 'TreasureMapHelper' },
-        { class: FPSLimiter, file: 'FPSLimiter' }
-    ];
+    const plugins = PLUGIN_REGISTRY.map(p => ({ class: p.class }));
 
     // Only register plugins and start if this is initial load
     if (!getPageGenerated()) {
@@ -258,21 +260,13 @@ if (import.meta.hot && import.meta.env.DEV) {
     const getPlugins = () => (window as any).__highlite_plugins || [];
     const getHighlite = () => (window as any).__highlite_core;
     
-    // Accept updates to all plugin modules
-    const setupModuleAcceptance = () => {
-        const plugins = getPlugins() as Array<{class: any, file: string}>;
-        if (plugins.length > 0) {
-            const pluginModules = plugins.map((plugin: {class: any, file: string}) => `./highlite/plugins/${plugin.file}`);
-            import.meta.hot!.accept(pluginModules, (modules) => {
-                console.log('[HMR] Plugin modules updated, handled by custom hot reload');
-            });
-        }
-    };
-    
-    setupModuleAcceptance();
+    const pluginPaths = PLUGIN_REGISTRY.map(p => p.path);
+    import.meta.hot.accept(pluginPaths, () => {
+        console.log('[HMR] Plugin modules updated, handled by custom hot reload system');
+    });
     
     const setupPluginHotReload = () => {
-        const plugins = getPlugins() as Array<{class: any, file: string}>;
+        const plugins = getPlugins() as Array<{class: any}>;
         const highlite = getHighlite();
         
         if (!plugins.length || !highlite) {
@@ -282,7 +276,7 @@ if (import.meta.hot && import.meta.env.DEV) {
         
         console.log('[HMR] Setting up plugin hot reloading...');
         
-        const pluginMap = new Map(plugins.map((p: {class: any, file: string}) => {
+        const pluginMap = new Map(plugins.map((p: {class: any}) => {
             const className = p.class.name;
             return [className, p];
         }));
@@ -312,7 +306,7 @@ if (import.meta.hot && import.meta.env.DEV) {
                     return;
                 }
                 
-                const moduleUrl = `./highlite/plugins/${plugin.file}.ts?t=${Date.now()}`;
+                const moduleUrl = `./highlite/plugins/${data.file}.ts?t=${Date.now()}`;
                 console.log(`[Plugin HMR] Importing updated module: ${moduleUrl}`);
                 const reloadedModule = await import(/* @vite-ignore */ moduleUrl);
                 const pluginClass = reloadedModule[data.pluginName];
