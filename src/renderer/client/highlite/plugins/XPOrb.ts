@@ -1,5 +1,6 @@
 import { Plugin } from "../core/interfaces/highlite/plugin/plugin.class";
 import { SettingsTypes } from "../core/interfaces/highlite/plugin/pluginSettings.interface";
+import { getSkillName } from "../core/utilities/LookupUtils";
 
 interface SkillXPData {
     skillId: number;
@@ -241,7 +242,7 @@ export class XPOrb extends Plugin {
                 for (let i = 0; i < skills.length; i++) {
                     const skill = skills[i];
                     if (skill && skill._skill !== undefined) {
-                        this.trackSkill(skill, this.getSkillName(skill._skill));
+                        this.trackSkill(skill, getSkillName(skill._skill));
                     }
                 }
             }
@@ -251,7 +252,7 @@ export class XPOrb extends Plugin {
                 for (let i = 0; i < combatSkills.length; i++) {
                     const skill = combatSkills[i];
                     if (skill && skill._skill !== undefined) {
-                        this.trackSkill(skill, this.getSkillName(skill._skill));
+                        this.trackSkill(skill, getSkillName(skill._skill));
                     }
                 }
             }
@@ -539,10 +540,6 @@ export class XPOrb extends Plugin {
         } catch (error) {
             console.error("Error resetting session XP:", error);
         }
-    }
-
-    private getSkillName(skillId: number): string {
-        return document.highlite.gameLookups.Skills[skillId] || `Skill${skillId}`;
     }
 
     private cleanupUI(): void {
