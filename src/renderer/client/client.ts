@@ -19,9 +19,9 @@ import { XPOrb } from "./highlite/plugins/XPOrb";
 import { TreasureMapHelper } from "./highlite/plugins/TreasureMapHelper";
 import { FPSLimiter } from "./highlite/plugins/FPSLimiter";
 
-import "../../../static/css/index.css"
-import "../../../static/css/overrides.css"
-import "../../../static/css/item-tooltip.css"
+import "@static/css/index.css"
+import "@static/css/overrides.css"
+import "@static/css/item-tooltip.css"
 
 import "./helpers/titlebarHelpers.js";
 import "@iconify/iconify";
@@ -66,7 +66,16 @@ async function obtainGameClient() {
     return Promise.resolve(highSpellClient);
 }
 
+// Track if page is already generated to prevent hot reload conflicts (persist across hot reloads)
+const getPageGenerated = () => (window as any).__highlite_page_generated || false;
+const setPageGenerated = (value: boolean) => (window as any).__highlite_page_generated = value;
+
 async function generatePage() {
+    // Prevent regenerating page during hot reload
+    if (getPageGenerated() && (import.meta as any).hot) {
+        console.log('[HMR] Skipping page regeneration during hot reload');
+        return;
+    }
     // POST Request to https://highspell.com/game
     const urlencoded = new URLSearchParams();
     urlencoded.append("submit", "World+1");
@@ -89,7 +98,7 @@ async function generatePage() {
             // If child has a relative href, update it to absolute
             if (child.hasAttribute("href")) {
                 const href = child.getAttribute("href");
-                if (href.startsWith("/")) {
+                if (href && href.startsWith("/")) {
                     child.setAttribute("href", "https://highspell.com" + href);
                 }
             }
@@ -102,7 +111,7 @@ async function generatePage() {
             // If child has a relative href, update it to absolute
             if (child.hasAttribute("href")) {
                 const href = child.getAttribute("href");
-                if (href.startsWith("/")) {
+                if (href && href.startsWith("/")) {
                     child.setAttribute("href", "https://highspell.com" + href);
                 }
             }
@@ -117,7 +126,7 @@ async function generatePage() {
     scripts.forEach(script => {
         const newScript = script.cloneNode(true);
         // if script was in head, append to head
-        if (script.parentNode.tagName.toLowerCase() === "head") {
+        if (script.parentNode && (script.parentNode as Element).tagName?.toLowerCase() === "head") {
             document.head.appendChild(newScript);
         } else {
             // if script was in body, append to body
@@ -129,6 +138,7 @@ async function generatePage() {
     const toElements = document.querySelectorAll("[to]");
     toElements.forEach(element => {
         const to = element.getAttribute("to");
+        if (!to) return;
         const targetElement = document.querySelector(to);
 
         // Check if the element has a before or after attribute
@@ -138,14 +148,14 @@ async function generatePage() {
         // If before is set, insert the element before the target element
         if (before && !after) {
             const beforeElement = document.querySelector(before);
-            if (beforeElement) {
+            if (beforeElement && beforeElement.parentNode) {
                 element.remove();
                 beforeElement.parentNode.insertBefore(element, beforeElement);
             }
         } else if (after && !before) {
             // If after is set, insert the element after the target element
             const afterElement = document.querySelector(after);
-            if (afterElement) {
+            if (afterElement && afterElement.parentNode) {
                 element.remove();
                 afterElement.parentNode.insertBefore(element, afterElement.nextSibling);
             }
@@ -178,29 +188,50 @@ async function generatePage() {
         module.createUserHelper();
     });
 
-    const highlite = new Highlite();
+    let highlite = (document as any).highlite?.core;
+    if (!highlite) {
+        highlite = new Highlite();
+        (document as any).highlite = (document as any).highlite || {};
+        (document as any).highlite.core = highlite;
+    }
 
-    highlite.pluginManager.registerPlugin(HPAlert);  
-    highlite.pluginManager.registerPlugin(IdleAlert);
-    highlite.pluginManager.registerPlugin(Lookup);
-    highlite.pluginManager.registerPlugin(Nameplates);
-    highlite.pluginManager.registerPlugin(EnhancedHPBars);
-    highlite.pluginManager.registerPlugin(EnhancedLoginScreen);
-    highlite.pluginManager.registerPlugin(ContextMenuOptions);
-    highlite.pluginManager.registerPlugin(TradeAlerts);
-    highlite.pluginManager.registerPlugin(PMAlerts);
-    highlite.pluginManager.registerPlugin(CoinCounter);
-    highlite.pluginManager.registerPlugin(ExperienceTracker);
-    highlite.pluginManager.registerPlugin(WorldMap);
-    highlite.pluginManager.registerPlugin(MinimapMarker);
-    highlite.pluginManager.registerPlugin(DropLog);
-    highlite.pluginManager.registerPlugin(ChatItemTooltip);
-    highlite.pluginManager.registerPlugin(XPOrb);
-    highlite.pluginManager.registerPlugin(TreasureMapHelper);
-    highlite.pluginManager.registerPlugin(FPSLimiter);
-  
-    // Start the highlite instance
-    highlite.start();
+    const plugins = [
+        { class: HPAlert, file: 'HPAlert' },
+        { class: IdleAlert, file: 'IdleAlert/IdleAlert' },
+        { class: Lookup, file: 'Lookup' },
+        { class: Nameplates, file: 'Nameplates' },
+        { class: EnhancedHPBars, file: 'EnhancedHPBars' },
+        { class: EnhancedLoginScreen, file: 'EnhancedLoginScreen' },
+        { class: ContextMenuOptions, file: 'ContextMenuOptions' },
+        { class: TradeAlerts, file: 'TradeAlerts' },
+        { class: PMAlerts, file: 'PMAlerts' },
+        { class: CoinCounter, file: 'CoinCounter' },
+        { class: ExperienceTracker, file: 'ExperienceTracker' },
+        { class: WorldMap, file: 'Map' },
+        { class: MinimapMarker, file: 'MinimapMarker' },
+        { class: DropLog, file: 'DropLog' },
+        { class: ChatItemTooltip, file: 'ChatItemTooltip' },
+        { class: XPOrb, file: 'XPOrb' },
+        { class: TreasureMapHelper, file: 'TreasureMapHelper' },
+        { class: FPSLimiter, file: 'FPSLimiter' }
+    ];
+
+    // Only register plugins and start if this is initial load
+    if (!getPageGenerated()) {
+        // Register all plugins
+        plugins.forEach(plugin => {
+            highlite.pluginManager.registerPlugin(plugin.class as any);
+        });
+      
+        // Start the highlite instance
+        highlite.start();
+    }
+
+    // Store plugins globally for HMR access
+    if (!getPageGenerated()) {
+        (window as any).__highlite_plugins = plugins;
+        (window as any).__highlite_core = highlite;
+    }
 
     window.electron.ipcRenderer.send("ui-ready");
 
@@ -209,7 +240,113 @@ async function generatePage() {
         bubbles: true,
         cancelable: true
     }));
+    
+    // Mark page as generated
+    setPageGenerated(true);
 }
 
+// Only run initial page generation, not during hot reload
+if (!(import.meta as any).hot || !getPageGenerated()) {
+    await generatePage();
+}
 
-await generatePage();
+// Setup HMR outside of generatePage to ensure it persists across hot reloads
+if (import.meta.hot && import.meta.env.DEV) {
+    console.log('[HMR] Setting up persistent hot module replacement...');
+    
+    // Get plugins from global state
+    const getPlugins = () => (window as any).__highlite_plugins || [];
+    const getHighlite = () => (window as any).__highlite_core;
+    
+    // Accept updates to all plugin modules
+    const setupModuleAcceptance = () => {
+        const plugins = getPlugins() as Array<{class: any, file: string}>;
+        if (plugins.length > 0) {
+            const pluginModules = plugins.map((plugin: {class: any, file: string}) => `./highlite/plugins/${plugin.file}`);
+            import.meta.hot!.accept(pluginModules, (modules) => {
+                console.log('[HMR] Plugin modules updated, handled by custom hot reload');
+            });
+        }
+    };
+    
+    setupModuleAcceptance();
+    
+    const setupPluginHotReload = () => {
+        const plugins = getPlugins() as Array<{class: any, file: string}>;
+        const highlite = getHighlite();
+        
+        if (!plugins.length || !highlite) {
+            console.log('[HMR] Waiting for plugins and highlite to be available...');
+            return;
+        }
+        
+        console.log('[HMR] Setting up plugin hot reloading...');
+        
+        const pluginMap = new Map(plugins.map((p: {class: any, file: string}) => {
+            const className = p.class.name;
+            return [className, p];
+        }));
+        
+        const reloadingPlugins = new Set<string>();
+        
+        import.meta.hot!.on('plugin-hot-reload', async (data: { pluginName: string, file: string }) => {
+            console.log(`[Plugin HMR] Hot reload event received for: ${data.pluginName}`);
+            
+            // Prevent duplicate reloads for the same plugin
+            if (reloadingPlugins.has(data.pluginName)) {
+                console.log(`[Plugin HMR] Already reloading ${data.pluginName}, skipping...`);
+                return;
+            }
+            
+            const plugin = pluginMap.get(data.pluginName);
+            if (!plugin) {
+                console.error(`[Plugin HMR] Plugin ${data.pluginName} not found in registry`);
+                return;
+            }
+            
+            reloadingPlugins.add(data.pluginName);
+            
+            try {
+                if (!highlite || !highlite.pluginManager) {
+                    console.error(`[Plugin HMR] Highlite or plugin manager not available`);
+                    return;
+                }
+                
+                const moduleUrl = `./highlite/plugins/${plugin.file}.ts?t=${Date.now()}`;
+                console.log(`[Plugin HMR] Importing updated module: ${moduleUrl}`);
+                const reloadedModule = await import(/* @vite-ignore */ moduleUrl);
+                const pluginClass = reloadedModule[data.pluginName];
+                
+                if (pluginClass && typeof highlite.pluginManager.hotReloadPlugin === 'function') {
+                    console.log(`[Plugin HMR] Hot reloading ${data.pluginName}`);
+                    const success = highlite.pluginManager.hotReloadPlugin(pluginClass);
+                    if (success) {
+                        console.log(`[Plugin HMR] Successfully hot reloaded ${data.pluginName}`);
+                        plugin.class = pluginClass;
+                    } else {
+                        console.error(`[Plugin HMR] Failed to hot reload ${data.pluginName}`);
+                    }
+                } else {
+                    console.error(`[Plugin HMR] Could not find plugin class ${data.pluginName} in reloaded module or hotReloadPlugin method not available`);
+                }
+            } catch (error) {
+                console.error(`[Plugin HMR] Error hot reloading ${data.pluginName}:`, error);
+            } finally {
+                reloadingPlugins.delete(data.pluginName);
+            }
+        });
+        
+    };
+    
+    // Check if we need to set up hot reload immediately or wait
+    if (getPlugins().length > 0 && getHighlite()) {
+        setupPluginHotReload();
+    } else {
+        // Wait a bit for plugins to be available
+        setTimeout(() => {
+            if (getPlugins().length > 0 && getHighlite()) {
+                setupPluginHotReload();
+            }
+        }, 100);
+    }
+}
