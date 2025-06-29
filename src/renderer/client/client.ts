@@ -22,7 +22,6 @@ import { FPSLimiter } from "./highlite/plugins/FPSLimiter";
 import "../../../static/css/index.css"
 import "../../../static/css/overrides.css"
 import "../../../static/css/item-tooltip.css"
-import "@fortawesome/fontawesome-free/css/all.css"
 
 import "./helpers/titlebarHelpers.js";
 import "@iconify/iconify";
