@@ -23,6 +23,7 @@ export class ItemDefinitionPanel extends Plugin {
     private currentView: 'items' | 'npcs' = 'items';
     private itemToggle: HTMLButtonElement | null = null;
     private npcToggle: HTMLButtonElement | null = null;
+    private lootData: any = null;
 
     init(): void {
         this.log("Item Definition Panel initialized");
@@ -54,6 +55,35 @@ export class ItemDefinitionPanel extends Plugin {
         // Load items and NPCs
         this.loadAllItems();
         this.loadAllNpcs();
+        this.loadLootData();
+    }
+
+    SocketManager_loggedOut(): void {
+        // Mark as logged out
+        this.isLoggedIn = false;
+
+        // Close any open modal
+        this.closeModal();
+
+        // Reset loaded states
+        this.itemsLoaded = false;
+        this.npcsLoaded = false;
+
+        // Clear data arrays
+        this.allItems = [];
+        this.filteredItems = [];
+        this.allNpcs = [];
+        this.filteredNpcs = [];
+        this.lootData = null;
+
+        // Reset pagination
+        this.currentPage = 0;
+
+        // Show loading state
+        this.showLoadingState();
+
+        // Update stats
+        this.updateStats();
     }
 
     private createPanel(): void {
@@ -303,6 +333,507 @@ export class ItemDefinitionPanel extends Plugin {
         }
     }
 
+    private async loadLootData(): Promise<void> {
+        try {
+            this.log('Loading loot data...');
+            const response = await fetch('https://highspell.com:8887/static/npcloot.16.carbon');
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            this.lootData = await response.json();
+            this.log('Loot data loaded successfully');
+        } catch (error) {
+            this.error(`Error loading loot data: ${error}`);
+        }
+    }
+
+    private generateDropsSection(lootTableId: number, npcName: string): string {
+        if (!this.lootData) {
+            return `
+                <div class="detail-section">
+                    <h3>Drops</h3>
+                    <p class="detail-note">Loot Table ID: ${lootTableId} (Loot data not loaded)</p>
+                </div>
+            `;
+        }
+
+        // Find the NPC's loot table
+        const npcLootTable = this.lootData.npcLootTables?.find((table: any) => table._id === lootTableId);
+        
+        if (!npcLootTable) {
+            return `
+                <div class="detail-section">
+                    <h3>Drops</h3>
+                    <p class="detail-note">Loot Table ID: ${lootTableId} (No loot data found)</p>
+                </div>
+            `;
+        }
+
+        let html = `
+            <div class="detail-section">
+                <h3>Drops</h3>
+                <p class="detail-note">Loot Table ID: ${lootTableId}</p>
+                <div class="drops-section-container">
+        `;
+
+        // Base Loot (always drops)
+        if (npcLootTable.baseLoot && npcLootTable.baseLoot.length > 0) {
+            html += `
+                <div class="loot-subsection">
+                    <h4>Guaranteed Drops</h4>
+                    <div class="loot-grid">
+            `;
+
+            npcLootTable.baseLoot.forEach((item: any) => {
+                html += this.generateLootItemHtml(item, '100%');
+            });
+
+            html += `
+                    </div>
+                </div>
+            `;
+        }
+
+        // Regular Loot (chance-based)
+        if (npcLootTable.loot && npcLootTable.loot.length > 0) {
+            html += `
+                <div class="loot-subsection">
+                    <h4>Possible Drops</h4>
+                    <div class="loot-grid">
+            `;
+
+            // Sort by odds (highest first)
+            const sortedLoot = [...npcLootTable.loot].sort((a, b) => (b.odds || 0) - (a.odds || 0));
+
+            sortedLoot.forEach((item: any) => {
+                const percentage = item.odds ? `${(item.odds * 100).toFixed(2)}%` : 'Unknown';
+                html += this.generateLootItemHtml(item, percentage);
+            });
+
+            html += `
+                    </div>
+                </div>
+            `;
+        }
+
+        // Rare Loot Table
+        if (npcLootTable.rareLootProbability && npcLootTable.rareLootProbability > 0 && this.lootData.rareLootTable) {
+            html += `
+                <div class="loot-subsection">
+                    <h4>Rare Drops (${(npcLootTable.rareLootProbability * 100).toFixed(2)}% chance to roll)</h4>
+                    <div class="loot-grid">
+            `;
+
+            if (this.lootData.rareLootTable.loot) {
+                const sortedRareLoot = [...this.lootData.rareLootTable.loot].sort((a, b) => (b.odds || 0) - (a.odds || 0));
+
+                sortedRareLoot.forEach((item: any) => {
+                    const basePercentage = item.odds ? (item.odds * 100) : 0;
+                    const actualPercentage = basePercentage * npcLootTable.rareLootProbability;
+                    const percentage = `${actualPercentage.toFixed(4)}%`;
+                    html += this.generateLootItemHtml(item, percentage, true);
+                });
+            }
+
+            html += `
+                    </div>
+                </div>
+            `;
+        }
+
+        // Root Loot
+        if (npcLootTable.rootLoot && this.lootData.rootLootTables) {
+            const rootTable = this.lootData.rootLootTables.find((table: any) => table._id === npcLootTable.rootLoot.tableId);
+            if (rootTable) {
+                html += `
+                    <div class="loot-subsection">
+                        <h4>Root Drops (${(npcLootTable.rootLoot.probability * 100).toFixed(2)}% chance to roll)</h4>
+                        <p class="detail-note">${rootTable.desc || 'Root loot table'}</p>
+                        <div class="loot-grid">
+                `;
+
+                if (rootTable.loot) {
+                    const sortedRootLoot = [...rootTable.loot].sort((a, b) => (b.odds || 0) - (a.odds || 0));
+
+                    sortedRootLoot.forEach((item: any) => {
+                        const basePercentage = item.odds ? (item.odds * 100) : 0;
+                        const actualPercentage = basePercentage * npcLootTable.rootLoot.probability;
+                        const percentage = `${actualPercentage.toFixed(4)}%`;
+                        html += this.generateLootItemHtml(item, percentage, false, true);
+                    });
+                }
+
+                html += `
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        // Treasure Map
+        if (npcLootTable.treasureMap) {
+            html += `
+                <div class="loot-subsection">
+                    <h4>Treasure Map</h4>
+                    <div class="loot-special">
+                        <span class="treasure-map-info">
+                            Level ${npcLootTable.treasureMap.level} Treasure Map - ${(npcLootTable.treasureMap.odds * 100).toFixed(4)}% chance
+                        </span>
+                    </div>
+                </div>
+            `;
+        }
+
+        html += `
+                </div>
+            </div>
+        `;
+
+        return html;
+    }
+
+    private generateLootItemHtml(item: any, percentage: string, isRare: boolean = false, isRoot: boolean = false): string {
+        try {
+            const itemDef = (document as any).highlite?.gameHooks?.ItemDefMap?.ItemDefMap?.get(item.itemId);
+            const itemName = itemDef?._nameCapitalized || itemDef?._name || item.name || `Item ${item.itemId}`;
+            const itemPos = (document as any).highlite?.gameHooks?.InventoryItemSpriteManager?.getCSSBackgroundPositionForItem(item.itemId);
+            const spriteStyle = itemPos ? `style="background-position: ${itemPos};"` : '';
+
+            let cssClass = 'loot-item';
+            if (isRare) cssClass += ' rare-loot';
+            if (isRoot) cssClass += ' root-loot';
+            if (item.isIOU) cssClass += ' iou-item';
+
+            const amountText = item.amount > 1 ? `${item.amount}x` : '';
+            const iouText = item.isIOU ? ' (IOU)' : '';
+
+            return `
+                <div class="${cssClass}" data-item-id="${item.itemId}">
+                    <div class="loot-item-sprite" ${spriteStyle}></div>
+                    <div class="loot-item-info">
+                        <div class="loot-item-name">${itemName}</div>
+                        <div class="loot-item-amount">${amountText}${iouText}</div>
+                        <div class="loot-item-odds">${percentage}</div>
+                    </div>
+                </div>
+            `;
+        } catch (error) {
+            return `
+                <div class="loot-item" data-item-id="${item.itemId}">
+                    <div class="loot-item-sprite"></div>
+                    <div class="loot-item-info">
+                        <div class="loot-item-name">${item.name || `Item ${item.itemId}`}</div>
+                        <div class="loot-item-amount">${item.amount > 1 ? `${item.amount}x` : ''}${item.isIOU ? ' (IOU)' : ''}</div>
+                        <div class="loot-item-odds">${percentage}</div>
+                    </div>
+                </div>
+            `;
+        }
+    }
+
+    private generateNpcDropsSection(itemId: number): string {
+        if (!this.lootData || !this.allNpcs || this.allNpcs.length === 0) {
+            return '';
+        }
+
+        const droppingNpcs: Array<{
+            npc: any;
+            dropInfo: {
+                type: 'base' | 'regular' | 'rare' | 'root';
+                percentage: string;
+                amount: number;
+                isIOU: boolean;
+            }[];
+        }> = [];
+
+        // Check each NPC for drops of this item
+        this.allNpcs.forEach(npc => {
+            if (!npc._combat || !npc._combat._lootTableId || npc._combat._lootTableId === -1) {
+                return;
+            }
+
+            const npcLootTable = this.lootData.npcLootTables?.find((table: any) => table._id === npc._combat._lootTableId);
+            if (!npcLootTable) {
+                return;
+            }
+
+            const dropInfo: any[] = [];
+
+            // Check base loot (guaranteed drops)
+            if (npcLootTable.baseLoot) {
+                npcLootTable.baseLoot.forEach((item: any) => {
+                    if (item.itemId === itemId) {
+                        dropInfo.push({
+                            type: 'base',
+                            percentage: '100%',
+                            amount: item.amount || 1,
+                            isIOU: item.isIOU || false
+                        });
+                    }
+                });
+            }
+
+            // Check regular loot
+            if (npcLootTable.loot) {
+                npcLootTable.loot.forEach((item: any) => {
+                    if (item.itemId === itemId) {
+                        const percentage = item.odds ? `${(item.odds * 100).toFixed(2)}%` : 'Unknown';
+                        dropInfo.push({
+                            type: 'regular',
+                            percentage,
+                            amount: item.amount || 1,
+                            isIOU: item.isIOU || false
+                        });
+                    }
+                });
+            }
+
+            // Check rare loot
+            if (npcLootTable.rareLootProbability && npcLootTable.rareLootProbability > 0 && this.lootData.rareLootTable?.loot) {
+                this.lootData.rareLootTable.loot.forEach((item: any) => {
+                    if (item.itemId === itemId) {
+                        const basePercentage = item.odds ? (item.odds * 100) : 0;
+                        const actualPercentage = basePercentage * npcLootTable.rareLootProbability;
+                        dropInfo.push({
+                            type: 'rare',
+                            percentage: `${actualPercentage.toFixed(4)}%`,
+                            amount: item.amount || 1,
+                            isIOU: item.isIOU || false
+                        });
+                    }
+                });
+            }
+
+            // Check root loot
+            if (npcLootTable.rootLoot && this.lootData.rootLootTables) {
+                const rootTable = this.lootData.rootLootTables.find((table: any) => table._id === npcLootTable.rootLoot.tableId);
+                if (rootTable?.loot) {
+                    rootTable.loot.forEach((item: any) => {
+                        if (item.itemId === itemId) {
+                            const basePercentage = item.odds ? (item.odds * 100) : 0;
+                            const actualPercentage = basePercentage * npcLootTable.rootLoot.probability;
+                            dropInfo.push({
+                                type: 'root',
+                                percentage: `${actualPercentage.toFixed(4)}%`,
+                                amount: item.amount || 1,
+                                isIOU: item.isIOU || false
+                            });
+                        }
+                    });
+                }
+            }
+
+            if (dropInfo.length > 0) {
+                droppingNpcs.push({ npc, dropInfo });
+            }
+        });
+
+        if (droppingNpcs.length === 0) {
+            return '';
+        }
+
+        // Sort NPCs by best drop rate (highest percentage first)
+        droppingNpcs.sort((a, b) => {
+            const getBestRate = (drops: any[]) => {
+                return Math.max(...drops.map(drop => {
+                    if (drop.percentage === '100%') return 100;
+                    return parseFloat(drop.percentage.replace('%', '')) || 0;
+                }));
+            };
+            return getBestRate(b.dropInfo) - getBestRate(a.dropInfo);
+        });
+
+        // Return HTML structure only - sprites will be created after DOM insertion
+        let html = `
+            <div class="detail-section" id="npc-drops-section">
+                <h3>Dropped By</h3>
+                <p class="detail-note">NPCs that drop this item (${droppingNpcs.length} found)</p>
+                <div class="npc-drops-container" id="npc-drops-container">
+        `;
+
+        droppingNpcs.forEach(({ npc, dropInfo }) => {
+            const combatLevel = npc._combat?._combat?._combatLevel || '?';
+
+            html += `
+                <div class="npc-drop-item" data-npc-id="${npc._id}">
+                    <div class="npc-drop-sprite-wrapper">
+                        <div class="npc-drop-sprite" data-npc-sprite="${npc._id}"></div>
+                        <div class="npc-drop-level-badge">${combatLevel}</div>
+                    </div>
+                    <div class="npc-drop-info">
+                        <div class="npc-drop-name">${npc._nameCapitalized || npc._name || `NPC ${npc._id}`}</div>
+                        <div class="npc-drop-details">
+            `;
+
+            // Show all drop types for this NPC
+            dropInfo.forEach((drop, index) => {
+                let typeLabel = '';
+                let typeClass = '';
+                switch (drop.type) {
+                    case 'base':
+                        typeLabel = 'Guaranteed';
+                        typeClass = 'guaranteed';
+                        break;
+                    case 'regular':
+                        typeLabel = 'Regular';
+                        typeClass = 'regular';
+                        break;
+                    case 'rare':
+                        typeLabel = 'Rare';
+                        typeClass = 'rare';
+                        break;
+                    case 'root':
+                        typeLabel = 'Root';
+                        typeClass = 'root';
+                        break;
+                }
+
+                const amountText = drop.amount > 1 ? `${drop.amount}x ` : '';
+                const iouText = drop.isIOU ? ' (IOU)' : '';
+
+                html += `
+                    <div class="npc-drop-type ${typeClass}">
+                        ${typeLabel}: ${amountText}${drop.percentage}${iouText}
+                    </div>
+                `;
+            });
+
+            html += `
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        html += `
+                </div>
+            </div>
+        `;
+
+        return html;
+    }
+
+    private createNpcDropSprites(container: HTMLElement): void {
+        if (!this.lootData || !this.allNpcs) return;
+
+        const npcSpriteElements = container.querySelectorAll('[data-npc-sprite]');
+        
+        npcSpriteElements.forEach(spriteElement => {
+            const npcId = parseInt(spriteElement.getAttribute('data-npc-sprite') || '0');
+            const npc = this.allNpcs.find(n => n._id === npcId);
+            
+            if (!npc) return;
+
+            const typeInfo = this.getNpcTypeInfo(npc);
+
+            if (typeInfo.isCreature && typeInfo.creatureType !== undefined) {
+                // Creature NPCs - use scaled approach for drops
+                const creatureType = typeInfo.creatureType;
+                const creatureSpriteId = typeInfo.creatureSpriteId || 0;
+                const sizeClass = this.getCreatureSizeClass(creatureType);
+
+                // Set basic sprite properties
+                spriteElement.className = `npc-drop-sprite npc-sprite-${sizeClass}`;
+                (spriteElement as HTMLElement).dataset.creatureType = creatureType.toString();
+
+                // Create inner sprite content element for scaling
+                const spriteContent = document.createElement('div');
+                spriteContent.className = 'sprite-content';
+
+                // Get sprite info from SpritesheetManager
+                const spritesheetManager = (document as any).highlite?.gameHooks?.SpriteSheetManager?.Instance;
+                const creatureSpritesheetInfo = spritesheetManager?.CreatureSpritesheetInfo;
+
+                if (creatureSpritesheetInfo && creatureSpritesheetInfo[creatureType]) {
+                    const sheetIndex = 0;
+                    const spriteInfo = creatureSpritesheetInfo[creatureType][sheetIndex];
+
+                    if (spriteInfo) {
+                        // Set background from sprite info on the content element
+                        spriteContent.style.backgroundImage = `url('${spriteInfo.SpritesheetURL}')`;
+                        spriteContent.style.backgroundSize = 'auto';
+                        spriteContent.style.backgroundRepeat = 'no-repeat';
+                        spriteContent.style.imageRendering = 'pixelated';
+
+                        // Calculate sprite position
+                        const spriteFrameIndex = 15 * creatureSpriteId;
+                        const spritePos = this.calculateSpritePositionFromId(spriteFrameIndex, creatureType);
+                        spriteContent.style.backgroundPosition = `-${spritePos.x}px -${spritePos.y}px`;
+                    } else {
+                        // Fallback to CSS approach
+                        const spriteFrameIndex = 15 * creatureSpriteId;
+                        const spritePos = this.calculateSpritePositionFromId(spriteFrameIndex, creatureType);
+                        spriteContent.style.backgroundPosition = `-${spritePos.x}px -${spritePos.y}px`;
+                        spriteContent.style.backgroundRepeat = 'no-repeat';
+                        spriteContent.style.imageRendering = 'pixelated';
+                    }
+                } else {
+                    // Fallback to CSS approach
+                    const spriteFrameIndex = 15 * creatureSpriteId;
+                    const spritePos = this.calculateSpritePositionFromId(spriteFrameIndex, creatureType);
+                    spriteContent.style.backgroundPosition = `-${spritePos.x}px -${spritePos.y}px`;
+                    spriteContent.style.backgroundRepeat = 'no-repeat';
+                    spriteContent.style.imageRendering = 'pixelated';
+                }
+
+                // Clear any existing content and add the sprite content
+                spriteElement.innerHTML = '';
+                spriteElement.appendChild(spriteContent);
+
+            } else if (typeInfo.isHuman) {
+                // Human NPCs
+                spriteElement.className = "npc-drop-sprite npc-sprite-human";
+                (spriteElement as HTMLElement).dataset.npcId = npc._id.toString();
+
+                // Try to access cached human sprite from SpritesheetManager
+                const spritesheetManager = (document as any).highlite.gameHooks.SpriteSheetManager.Instance;
+                const humanSpriteInfo = spritesheetManager?.HumanNPCSpritesheetInfo?.get(npc._id);
+
+                if (humanSpriteInfo && humanSpriteInfo.SpritesheetURL) {
+                    // Use existing sprite URL
+                    (spriteElement as HTMLElement).style.backgroundImage = `url('${humanSpriteInfo.SpritesheetURL}')`;
+                    (spriteElement as HTMLElement).style.backgroundPosition = "-71px 0px";
+                    (spriteElement as HTMLElement).style.backgroundSize = "auto";
+                } else {
+                    // No cached sprite, show placeholder initially
+                    spriteElement.innerHTML = "👤";
+                    (spriteElement as HTMLElement).style.backgroundColor = "#f0f0f0";
+                    (spriteElement as HTMLElement).style.display = "flex";
+                    (spriteElement as HTMLElement).style.alignItems = "center";
+                    (spriteElement as HTMLElement).style.justifyContent = "center";
+                    (spriteElement as HTMLElement).style.fontSize = "20px";
+                    (spriteElement as HTMLElement).style.color = "#666";
+
+                    // Request sprite generation through the game's system
+                    this.requestHumanSprite(npc);
+
+                    // Poll for the sprite
+                    const pollInterval = setInterval(() => {
+                        const spriteInfo = spritesheetManager?.HumanNPCSpritesheetInfo?.get(npc._id);
+                        if (spriteInfo && spriteInfo.SpritesheetURL) {
+                            clearInterval(pollInterval);
+                            const targetElement = container.querySelector(`[data-npc-sprite="${npc._id}"]`) as HTMLElement;
+                            if (targetElement) {
+                                targetElement.innerHTML = "";
+                                targetElement.style.backgroundImage = `url('${spriteInfo.SpritesheetURL}')`;
+                                targetElement.style.backgroundPosition = "-70px 0px";
+                                targetElement.style.backgroundSize = "auto";
+                                targetElement.style.backgroundColor = "transparent";
+                            }
+                        }
+                    }, 100); // Poll every 100ms
+
+                    // Stop polling after 5 seconds
+                    setTimeout(() => clearInterval(pollInterval), 5000);
+                }
+            } else {
+                // Unknown or simple NPCs
+                spriteElement.className = "npc-drop-sprite npc-sprite-unknown";
+                spriteElement.innerHTML = "?";
+            }
+        });
+    }
+
     private getNpcTypeInfo(npc: any): {
         isCreature: boolean;
         isHuman: boolean;
@@ -495,6 +1026,10 @@ export class ItemDefinitionPanel extends Plugin {
         npcEl.className = "item-list-item npc-list-item";
         npcEl.dataset.npcId = npc._id.toString();
 
+        // NPC sprite wrapper (for badge overflow)
+        const spriteWrapper = document.createElement("div");
+        spriteWrapper.className = "npc-sprite-wrapper";
+
         // NPC sprite container
         const spriteContainer = document.createElement("div");
         spriteContainer.className = "npc-sprite-container";
@@ -509,36 +1044,86 @@ export class ItemDefinitionPanel extends Plugin {
             const creatureType = typeInfo.creatureType;
             const creatureSpriteId = typeInfo.creatureSpriteId || 0;
             const sizeClass = this.getCreatureSizeClass(creatureType);
-            const spriteInfo = this.getCreatureSpriteInfo(creatureType);
 
-            // Create inner sprite element with actual sprite dimensions
-            sprite.className = `npc-sprite npc-sprite-${sizeClass}`;
-            sprite.dataset.creatureType = creatureType.toString();
-            
-            // Set the inner sprite to the actual sprite dimensions
-            sprite.style.width = `${spriteInfo.spriteWidth}px`;
-            sprite.style.height = `${spriteInfo.spriteHeight}px`;
-            sprite.style.position = 'absolute';
-            sprite.style.left = '50%';
-            sprite.style.top = '50%';
-            
-            // Scale sprites to fit in container
-            let scale = 1;
-            if (sizeClass === 'medium') scale = 0.7;
-            else if (sizeClass === 'large') scale = 0.5;
-            else if (sizeClass === 'largest') scale = 0.35;
-            
-            sprite.style.transform = `translate(-50%, -50%) scale(${scale})`;
+            // Get sprite info from SpritesheetManager
+            const spritesheetManager = (document as any).highlite?.gameHooks?.SpriteSheetManager?.Instance;
+            const creatureSpritesheetInfo = spritesheetManager?.CreatureSpritesheetInfo;
 
-            // Based on createNPCFromPacketData, the game uses: 15 * CreatureSpriteID
-            const spriteFrameIndex = 15 * creatureSpriteId;
-            const spritePos = this.calculateSpritePositionFromId(spriteFrameIndex, creatureType);
-            sprite.style.backgroundPosition = `-${spritePos.x}px -${spritePos.y}px`;
+            if (creatureSpritesheetInfo && creatureSpritesheetInfo[creatureType]) {
+                // Use sprite sheet 0 (first sheet) as default
+                const sheetIndex = 0;
+                const spriteInfo = creatureSpritesheetInfo[creatureType][sheetIndex];
+
+                if (spriteInfo) {
+                    sprite.className = `npc-sprite npc-sprite-${sizeClass}`;
+                    sprite.dataset.creatureType = creatureType.toString();
+
+                    // Set sprite dimensions from sprite info
+                    sprite.style.width = `${spriteInfo.SpriteWidth}px`;
+                    sprite.style.height = `${spriteInfo.SpriteHeight}px`;
+                    sprite.style.position = 'absolute';
+                    sprite.style.left = '50%';
+                    sprite.style.top = '50%';
+
+                    // Scale sprites to fit in container
+                    let scale = 1;
+                    if (sizeClass === 'medium') scale = 0.7;
+                    else if (sizeClass === 'large') scale = 0.5;
+                    else if (sizeClass === 'largest') scale = 0.35;
+
+                    sprite.style.transform = `translate(-50%, -50%) scale(${scale})`;
+
+                    // Set background from sprite info
+                    sprite.style.backgroundImage = `url('${spriteInfo.SpritesheetURL}')`;
+                    sprite.style.backgroundSize = 'auto';
+
+                    // Based on createNPCFromPacketData, the game uses: 15 * CreatureSpriteID
+                    const spriteFrameIndex = 15 * creatureSpriteId;
+                    const spritePos = this.calculateSpritePositionFromId(spriteFrameIndex, creatureType);
+                    sprite.style.backgroundPosition = `-${spritePos.x}px -${spritePos.y}px`;
+                } else {
+                    // Fallback to CSS approach if sprite info not available
+                    sprite.className = `npc-sprite npc-sprite-${sizeClass}`;
+                    sprite.dataset.creatureType = creatureType.toString();
+                    const spriteInfo = this.getCreatureSpriteInfo(creatureType);
+                    sprite.style.width = `${spriteInfo.spriteWidth}px`;
+                    sprite.style.height = `${spriteInfo.spriteHeight}px`;
+                    sprite.style.position = 'absolute';
+                    sprite.style.left = '50%';
+                    sprite.style.top = '50%';
+                    let scale = 1;
+                    if (sizeClass === 'medium') scale = 0.7;
+                    else if (sizeClass === 'large') scale = 0.5;
+                    else if (sizeClass === 'largest') scale = 0.35;
+                    sprite.style.transform = `translate(-50%, -50%) scale(${scale})`;
+                    const spriteFrameIndex = 15 * creatureSpriteId;
+                    const spritePos = this.calculateSpritePositionFromId(spriteFrameIndex, creatureType);
+                    sprite.style.backgroundPosition = `-${spritePos.x}px -${spritePos.y}px`;
+                }
+            } else {
+                // Fallback to CSS approach if SpritesheetManager not available
+                sprite.className = `npc-sprite npc-sprite-${sizeClass}`;
+                sprite.dataset.creatureType = creatureType.toString();
+                const spriteInfo = this.getCreatureSpriteInfo(creatureType);
+                sprite.style.width = `${spriteInfo.spriteWidth}px`;
+                sprite.style.height = `${spriteInfo.spriteHeight}px`;
+                sprite.style.position = 'absolute';
+                sprite.style.left = '50%';
+                sprite.style.top = '50%';
+                let scale = 1;
+                if (sizeClass === 'medium') scale = 0.7;
+                else if (sizeClass === 'large') scale = 0.5;
+                else if (sizeClass === 'largest') scale = 0.35;
+                sprite.style.transform = `translate(-50%, -50%) scale(${scale})`;
+                const spriteFrameIndex = 15 * creatureSpriteId;
+                const spritePos = this.calculateSpritePositionFromId(spriteFrameIndex, creatureType);
+                sprite.style.backgroundPosition = `-${spritePos.x}px -${spritePos.y}px`;
+            }
         } else if (typeInfo.isHuman) {
             // Human NPCs with customizable appearance
             sprite.className = "npc-sprite npc-sprite-human";
             sprite.dataset.npcId = npc._id.toString();
-            
+
             // Human sprites are 64x128
             sprite.style.width = '64px';
             sprite.style.height = '128px';
@@ -547,15 +1132,16 @@ export class ItemDefinitionPanel extends Plugin {
             sprite.style.top = '50%';
             sprite.style.transform = 'translate(-50%, -50%) scale(0.7)';  // Scale down to fit better
 
-                          // Try to access cached human sprite from SpritesheetManager
-             const spritesheetManager = (document as any).highlite.gameHooks.SpriteSheetManager.Instance;
+            // Try to access cached human sprite from SpritesheetManager
+            const spritesheetManager = (document as any).highlite.gameHooks.SpriteSheetManager.Instance;
             const humanSpriteInfo = spritesheetManager?.HumanNPCSpritesheetInfo?.get(npc._id);
 
             if (humanSpriteInfo && humanSpriteInfo.SpritesheetURL) {
                 // Use existing sprite URL
                 sprite.style.backgroundImage = `url('${humanSpriteInfo.SpritesheetURL}')`;
                 // Human sprites are 64x128, facing south (direction offset 1)
-                sprite.style.backgroundPosition = "-72px 0px";
+                // Adjust Y position to show head area (positive Y moves down)
+                sprite.style.backgroundPosition = "-65px 25px";
                 sprite.style.backgroundSize = "auto";
             } else {
                 // No cached sprite, show placeholder initially
@@ -578,7 +1164,7 @@ export class ItemDefinitionPanel extends Plugin {
                         if (spriteElement) {
                             spriteElement.innerHTML = "";
                             spriteElement.style.backgroundImage = `url('${spriteInfo.SpritesheetURL}')`;
-                            spriteElement.style.backgroundPosition = "-64px 0px";
+                            spriteElement.style.backgroundPosition = "-64px 25px";
                             spriteElement.style.backgroundSize = "auto";
                             spriteElement.style.backgroundColor = "transparent";
                         }
@@ -599,11 +1185,12 @@ export class ItemDefinitionPanel extends Plugin {
             const levelBadge = document.createElement("div");
             levelBadge.className = "npc-level-badge";
             levelBadge.textContent = npc._combat._combat._combatLevel || '?';
-            spriteContainer.appendChild(levelBadge);
+            spriteWrapper.appendChild(levelBadge);
         }
 
         spriteContainer.appendChild(sprite);
-        npcEl.appendChild(spriteContainer);
+        spriteWrapper.appendChild(spriteContainer);
+        npcEl.appendChild(spriteWrapper);
 
         // NPC info
         const info = document.createElement("div");
@@ -737,37 +1324,31 @@ export class ItemDefinitionPanel extends Plugin {
         try {
             if (!npc._appearance) return;
 
-                         const spritesheetManager = (document as any).highlite.gameHooks.SpriteSheetManager.Instance;
+            const spritesheetManager = (document as any).highlite.gameHooks.SpriteSheetManager.Instance;
             if (!spritesheetManager) return;
 
             // Get access to the game's tk class if available
-            const tk = (document as any).client.get("tk");
+            const appearanceUtils = (document as any).highlite.gameHooks.appearanceUtils;
 
             // Build appearance arrays using the game's format
             const appearanceIds = new Array(5);
 
             // YP enum values from the game
-            const YP = {
-                Hair: 0,
-                Beard: 1,
-                Shirt: 2,
-                Body: 3,
-                Pants: 4
-            };
+            const appearanceTypes = (document as any).highlite.gameLookups["AppearanceTypes"];
 
-            appearanceIds[YP.Hair] = tk.appearanceIdToAppearanceArray(YP.Hair, npc._appearance._hairId ?? 0);
-            appearanceIds[YP.Beard] = tk.appearanceIdToAppearanceArray(YP.Beard, npc._appearance._beardId ?? 0);
-            appearanceIds[YP.Shirt] = tk.appearanceIdToAppearanceArray(YP.Shirt, npc._appearance._shirtId ?? 0);
-            appearanceIds[YP.Body] = tk.appearanceIdToAppearanceArray(YP.Body, npc._appearance._bodyId ?? 0);
-            appearanceIds[YP.Pants] = tk.appearanceIdToAppearanceArray(YP.Pants, npc._appearance._legsId ?? 0);
+            appearanceIds[appearanceTypes.Hair] = appearanceUtils.appearanceIdToAppearanceArray(appearanceTypes.Hair, npc._appearance._hairId ?? 0);
+            appearanceIds[appearanceTypes.Beard] = appearanceUtils.appearanceIdToAppearanceArray(appearanceTypes.Beard, npc._appearance._beardId ?? 0);
+            appearanceIds[appearanceTypes.Shirt] = appearanceUtils.appearanceIdToAppearanceArray(appearanceTypes.Shirt, npc._appearance._shirtId ?? 0);
+            appearanceIds[appearanceTypes.Body] = appearanceUtils.appearanceIdToAppearanceArray(appearanceTypes.Body, npc._appearance._bodyId ?? 0);
+            appearanceIds[appearanceTypes.Pants] = appearanceUtils.appearanceIdToAppearanceArray(appearanceTypes.Pants, npc._appearance._legsId ?? 0);
 
 
             // Build equipped items arrays
             let equippedItemIds: number[][] = [];
 
-            if (npc._appearance._equippedItems && tk && tk.inventoryItemToEquippedItemsArray) {
+            if (npc._appearance._equippedItems) {
                 // Try to map equipped items properly
-                equippedItemIds = npc._appearance._equippedItems.map((item: any) => tk.inventoryItemToEquippedItemsArray(item));
+                equippedItemIds = npc._appearance._equippedItems.map((item: any) => appearanceUtils.inventoryItemToEquippedItemsArray(item));
             } else {
                 // Create empty equipment array
                 equippedItemIds = new Array(10);
@@ -777,14 +1358,14 @@ export class ItemDefinitionPanel extends Plugin {
             }
 
             // PF enum from the game
-                         const PF = (document as any).client.get("PF");
+            const entityTypes = (document as any).highlite.gameLookups["EntityTypes"];
 
             // Generate a unique entity ID for this request
             const entityId = Date.now() + npc._id;
 
             // Call the game's sprite sheet generation
             spritesheetManager.loadHumanSpritesheet(
-                PF.NPC,           // EntityType
+                entityTypes.NPC,           // EntityType
                 null,             // Name (null for NPCs)
                 entityId,         // EntityID (unique)
                 npc._id,          // EntityTypeID (the NPC definition ID)
@@ -1244,6 +1825,9 @@ export class ItemDefinitionPanel extends Plugin {
                 `;
             }
 
+            // NPCs that drop this item
+            html += this.generateNpcDropsSection(itemId);
+
             // Actions
             html += `
                 <div class="detail-section">
@@ -1257,8 +1841,12 @@ export class ItemDefinitionPanel extends Plugin {
 
             container.innerHTML = html;
 
-            // Bind click events to recipe items
+            // Create NPC sprites after DOM insertion
+            this.createNpcDropSprites(container);
+
+            // Bind click events to recipe items and NPC drop items
             const recipeItems = container.querySelectorAll('.recipe-item');
+            const npcDropItems = container.querySelectorAll('.npc-drop-item');
             const uiManager = (document as any).highlite?.managers?.UIManager;
 
             recipeItems.forEach(item => {
@@ -1271,6 +1859,20 @@ export class ItemDefinitionPanel extends Plugin {
                     // Fallback
                     (item as HTMLElement).onclick = () => {
                         this.showItemModal(parseInt(itemId));
+                    };
+                }
+            });
+
+            npcDropItems.forEach(npcItem => {
+                const npcId = npcItem.getAttribute('data-npc-id');
+                if (npcId && uiManager) {
+                    uiManager.bindOnClickBlockHsMask(npcItem as HTMLElement, () => {
+                        this.showNpcModal(parseInt(npcId));
+                    });
+                } else if (npcId) {
+                    // Fallback
+                    (npcItem as HTMLElement).onclick = () => {
+                        this.showNpcModal(parseInt(npcId));
                     };
                 }
             });
@@ -1403,10 +2005,31 @@ export class ItemDefinitionPanel extends Plugin {
                 const creatureType = typeInfo.creatureType;
                 const creatureSpriteId = typeInfo.creatureSpriteId;
                 const sizeClass = this.getCreatureSizeClass(creatureType);
-                const spriteFrameIndex = 15 * creatureSpriteId;
-                const spritePos = this.calculateSpritePositionFromId(spriteFrameIndex, creatureType);
 
-                spriteHtml = `<div class="npc-sprite-modal npc-sprite-${sizeClass}" data-creature-type="${creatureType}" style="background-position: -${spritePos.x}px -${spritePos.y}px;"></div>`;
+                // Get sprite info from SpritesheetManager
+                const spritesheetManager = (document as any).highlite?.gameHooks?.SpriteSheetManager?.Instance;
+                const creatureSpritesheetInfo = spritesheetManager?.CreatureSpritesheetInfo;
+
+                if (creatureSpritesheetInfo && creatureSpritesheetInfo[creatureType]) {
+                    const sheetIndex = 0; // Use first sheet
+                    const spriteInfo = creatureSpritesheetInfo[creatureType][sheetIndex];
+
+                    if (spriteInfo) {
+                        const spriteFrameIndex = 15 * creatureSpriteId;
+                        const spritePos = this.calculateSpritePositionFromId(spriteFrameIndex, creatureType);
+                        spriteHtml = `<div class="npc-sprite-modal npc-sprite-${sizeClass}" data-creature-type="${creatureType}" style="background-image: url('${spriteInfo.SpritesheetURL}'); background-position: -${spritePos.x}px -${spritePos.y}px; width: ${spriteInfo.SpriteWidth}px; height: ${spriteInfo.SpriteHeight}px;"></div>`;
+                    } else {
+                        // Fallback
+                        const spriteFrameIndex = 15 * creatureSpriteId;
+                        const spritePos = this.calculateSpritePositionFromId(spriteFrameIndex, creatureType);
+                        spriteHtml = `<div class="npc-sprite-modal npc-sprite-${sizeClass}" data-creature-type="${creatureType}" style="background-position: -${spritePos.x}px -${spritePos.y}px;"></div>`;
+                    }
+                } else {
+                    // Fallback
+                    const spriteFrameIndex = 15 * creatureSpriteId;
+                    const spritePos = this.calculateSpritePositionFromId(spriteFrameIndex, creatureType);
+                    spriteHtml = `<div class="npc-sprite-modal npc-sprite-${sizeClass}" data-creature-type="${creatureType}" style="background-position: -${spritePos.x}px -${spritePos.y}px;"></div>`;
+                }
             } else if (typeInfo.isHuman) {
                 // Try to get cached human sprite
                 const spritesheetManager = (document as any).highlite.gameHooks.SpriteSheetManager.Instance;
@@ -1451,6 +2074,9 @@ export class ItemDefinitionPanel extends Plugin {
                     <div class="detail-title">
                         <h2>${npcDef._nameCapitalized || npcDef._name || `NPC ${npcId}`}</h2>
                         <p class="detail-id">ID: ${npcId}</p>
+                        ${npcDef._combat && npcDef._combat._combat && npcDef._combat._combat._combatLevel ? 
+                            `<p class="detail-level">Level: ${npcDef._combat._combat._combatLevel}</p>` : 
+                            ''}
                     </div>
                 </div>
             `;
@@ -1495,29 +2121,13 @@ export class ItemDefinitionPanel extends Plugin {
                     });
                 }
 
-                // Equipment bonuses
-                if (combat._equipmentAccuracyBonus !== undefined || combat._equipmentStrengthBonus !== undefined) {
-                    html += `
-                        <div class="property">
-                            <span class="property-label">Accuracy Bonus:</span>
-                            <span class="property-value">+${combat._equipmentAccuracyBonus || 0}</span>
-                        </div>
-                        <div class="property">
-                            <span class="property-label">Strength Bonus:</span>
-                            <span class="property-value">+${combat._equipmentStrengthBonus || 0}</span>
-                        </div>
-                        <div class="property">
-                            <span class="property-label">Defense Bonus:</span>
-                            <span class="property-value">+${combat._equipmentDefenseBonus || 0}</span>
-                        </div>
-                    `;
-                }
-
                 html += `
                         </div>
                     </div>
                 `;
             }
+
+
 
             // Behavior
             html += `
@@ -1535,11 +2145,29 @@ export class ItemDefinitionPanel extends Plugin {
                 `;
             }
 
+            if (npcDef._isAlwaysAggro !== undefined) {
+                html += `
+                    <div class="property">
+                        <span class="property-label">Always Aggressive:</span>
+                        <span class="property-value ${npcDef._isAlwaysAggro ? 'yes' : 'no'}">${npcDef._isAlwaysAggro ? 'Yes' : 'No'}</span>
+                    </div>
+                `;
+            }
+
             if (npcDef._aggroRadius !== undefined) {
                 html += `
                     <div class="property">
                         <span class="property-label">Aggro Radius:</span>
                         <span class="property-value">${npcDef._aggroRadius} tiles</span>
+                    </div>
+                `;
+            }
+
+            if (npcDef._moveEagerness !== undefined) {
+                html += `
+                    <div class="property">
+                        <span class="property-label">Move Eagerness:</span>
+                        <span class="property-value">${npcDef._moveEagerness}</span>
                     </div>
                 `;
             }
@@ -1571,22 +2199,173 @@ export class ItemDefinitionPanel extends Plugin {
                 `;
             }
 
+            if (npcDef._combat && npcDef._combat._combat && npcDef._combat._combat._autoRetaliate !== undefined) {
+                html += `
+                    <div class="property">
+                        <span class="property-label">Auto Retaliate:</span>
+                        <span class="property-value ${npcDef._combat._combat._autoRetaliate ? 'yes' : 'no'}">${npcDef._combat._combat._autoRetaliate ? 'Yes' : 'No'}</span>
+                    </div>
+                `;
+            }
+
+            if (npcDef._combat && npcDef._combat._combat && npcDef._combat._combat._combatStyle !== undefined) {
+                const combatStyles = ['Melee', 'Ranged', 'Magic'];
+                const styleName = combatStyles[npcDef._combat._combat._combatStyle] || `Style ${npcDef._combat._combat._combatStyle}`;
+                html += `
+                    <div class="property">
+                        <span class="property-label">Combat Style:</span>
+                        <span class="property-value">${styleName}</span>
+                    </div>
+                `;
+            }
+
             html += `
                     </div>
                 </div>
             `;
 
-            // Loot Table
-            if (npcDef._lootTableId !== undefined && npcDef._lootTableId !== -1) {
+            // Equipment Bonuses
+            if (npcDef._combat && npcDef._combat._combat) {
+                const combat = npcDef._combat._combat;
+                const hasEquipmentBonuses = (
+                    combat._equipmentAccuracyBonus !== undefined ||
+                    combat._equipmentStrengthBonus !== undefined ||
+                    combat._equipmentDefenseBonus !== undefined ||
+                    combat._equipmentMagicBonus !== undefined ||
+                    combat._equipmentRangeBonus !== undefined
+                );
+
+                if (hasEquipmentBonuses) {
+                    html += `
+                        <div class="detail-section">
+                            <h3>Equipment Bonuses</h3>
+                            <div class="detail-properties">
+                    `;
+
+                    if (combat._equipmentAccuracyBonus !== undefined) {
+                        html += `
+                            <div class="property">
+                                <span class="property-label">Accuracy Bonus:</span>
+                                <span class="property-value">+${combat._equipmentAccuracyBonus}</span>
+                            </div>
+                        `;
+                    }
+
+                    if (combat._equipmentStrengthBonus !== undefined) {
+                        html += `
+                            <div class="property">
+                                <span class="property-label">Strength Bonus:</span>
+                                <span class="property-value">+${combat._equipmentStrengthBonus}</span>
+                            </div>
+                        `;
+                    }
+
+                    if (combat._equipmentDefenseBonus !== undefined) {
+                        html += `
+                            <div class="property">
+                                <span class="property-label">Defense Bonus:</span>
+                                <span class="property-value">+${combat._equipmentDefenseBonus}</span>
+                            </div>
+                        `;
+                    }
+
+                    if (combat._equipmentMagicBonus !== undefined) {
+                        html += `
+                            <div class="property">
+                                <span class="property-label">Magic Bonus:</span>
+                                <span class="property-value">+${combat._equipmentMagicBonus}</span>
+                            </div>
+                        `;
+                    }
+
+                    if (combat._equipmentRangeBonus !== undefined) {
+                        html += `
+                            <div class="property">
+                                <span class="property-label">Range Bonus:</span>
+                                <span class="property-value">+${combat._equipmentRangeBonus}</span>
+                            </div>
+                        `;
+                    }
+
+                    html += `
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+
+            // Spells
+            if (npcDef._combat && npcDef._combat._spellIds && npcDef._combat._spellIds.length > 0) {
                 html += `
                     <div class="detail-section">
-                        <h3>Drops</h3>
-                        <p class="detail-note">Loot Table ID: ${npcDef._lootTableId}</p>
+                        <h3>Magic Abilities</h3>
+                        <div class="detail-list">
+                `;
+                npcDef._combat._spellIds.forEach((spellId: number) => {
+                    try {
+                        const spellDef = (document as any).highlite?.gameHooks?.SpellDefinitionManager?.getDefById(spellId);
+                        const spellName = spellDef?.Name || `Unknown Spell`;
+                        html += `<div class="detail-list-item">• ${spellName} (ID: ${spellId})</div>`;
+                    } catch {
+                        html += `<div class="detail-list-item">• Spell ID: ${spellId}</div>`;
+                    }
+                });
+                html += `
+                        </div>
                     </div>
                 `;
             }
 
-            // Appearance info (equipped items)
+            // General Properties
+            html += `
+                <div class="detail-section">
+                    <h3>General Properties</h3>
+                    <div class="detail-properties">
+            `;
+
+            if (npcDef._canShop !== undefined) {
+                html += `
+                    <div class="property">
+                        <span class="property-label">Can Shop:</span>
+                        <span class="property-value ${npcDef._canShop ? 'yes' : 'no'}">${npcDef._canShop ? 'Yes' : 'No'}</span>
+                    </div>
+                `;
+            }
+
+            if (npcDef._pickpocketId !== undefined && npcDef._pickpocketId !== -1) {
+                html += `
+                    <div class="property">
+                        <span class="property-label">Pickpocket ID:</span>
+                        <span class="property-value">${npcDef._pickpocketId}</span>
+                    </div>
+                `;
+            }
+
+            if (npcDef._creatureType !== undefined) {
+                const creatureTypeNames = {
+                    '-1': 'Human',
+                    '0': 'Small Creature',
+                    '1': 'Medium Creature', 
+                    '2': 'Large Creature',
+                    '3': 'Largest Creature'
+                };
+                const typeName = creatureTypeNames[npcDef._creatureType as keyof typeof creatureTypeNames] || `Type ${npcDef._creatureType}`;
+                html += `
+                    <div class="property">
+                        <span class="property-label">Entity Type:</span>
+                        <span class="property-value">${typeName}</span>
+                    </div>
+                `;
+            }
+
+            html += `
+                    </div>
+                </div>
+            `;
+
+
+
+            // Equipment (for humans)
             if (npcDef._appearance && npcDef._appearance._equippedItems) {
                 const equippedItems = npcDef._appearance._equippedItems.filter((item: any) => item && item._id);
                 if (equippedItems.length > 0) {
@@ -1608,6 +2387,7 @@ export class ItemDefinitionPanel extends Plugin {
                                     <div class="recipe-item-sprite" ${spriteStyle}></div>
                                     <div class="recipe-item-info">
                                         <div class="recipe-item-name">${itemName}</div>
+                                        <div class="recipe-item-amount">${item._amount}x</div>
                                     </div>
                                 </div>
                             `;
@@ -1617,6 +2397,7 @@ export class ItemDefinitionPanel extends Plugin {
                                     <div class="recipe-item-sprite"></div>
                                     <div class="recipe-item-info">
                                         <div class="recipe-item-name">Item ${item._id}</div>
+                                        <div class="recipe-item-amount">${item._amount}x</div>
                                     </div>
                                 </div>
                             `;
@@ -1630,11 +2411,158 @@ export class ItemDefinitionPanel extends Plugin {
                 }
             }
 
+            // Loot Table
+            if (npcDef._combat && npcDef._combat._lootTableId !== undefined && npcDef._combat._lootTableId !== -1) {
+                html += this.generateDropsSection(npcDef._combat._lootTableId, npcDef._name || `NPC ${npcId}`);
+            }
+
+            // Creature Appearance (for creatures)
+            // if (npcDef._creatureAppearance) {
+            //     html += `
+            //         <div class="detail-section">
+            //             <h3>Creature Info</h3>
+            //             <div class="detail-properties">
+            //                 <div class="property">
+            //                     <span class="property-label">Creature Type:</span>
+            //                     <span class="property-value">${this.getCreatureSizeClass(npcDef._creatureAppearance._creatureType)}</span>
+            //                 </div>
+            //                 <div class="property">
+            //                     <span class="property-label">Sprite ID:</span>
+            //                     <span class="property-value">${npcDef._creatureAppearance._creatureSpriteId}</span>
+            //                 </div>
+            //                 <div class="property">
+            //                     <span class="property-label">Width:</span>
+            //                     <span class="property-value">${npcDef._creatureAppearance._width} tiles</span>
+            //                 </div>
+            //                 <div class="property">
+            //                     <span class="property-label">Height:</span>
+            //                     <span class="property-value">${npcDef._creatureAppearance._height} tiles</span>
+            //                 </div>
+            //                 <div class="property">
+            //                     <span class="property-label">Animation Speed:</span>
+            //                     <span class="property-value">${npcDef._creatureAppearance._animationSpeed}x</span>
+            //                 </div>
+            //             </div>
+            //         </div>
+            //     `;
+            // }
+
+            // Human Appearance (for humans)
+            // if (npcDef._appearance) {
+            //     html += `
+            //         <div class="detail-section">
+            //             <h3>Appearance</h3>
+            //             <div class="detail-properties">
+            //     `;
+
+            //     if (npcDef._appearance._hairId !== undefined) {
+            //         html += `
+            //             <div class="property">
+            //                 <span class="property-label">Hair ID:</span>
+            //                 <span class="property-value">${npcDef._appearance._hairId}</span>
+            //             </div>
+            //         `;
+            //     }
+
+            //     if (npcDef._appearance._beardId !== undefined) {
+            //         html += `
+            //             <div class="property">
+            //                 <span class="property-label">Beard ID:</span>
+            //                 <span class="property-value">${npcDef._appearance._beardId}</span>
+            //             </div>
+            //         `;
+            //     }
+
+            //     if (npcDef._appearance._shirtId !== undefined) {
+            //         html += `
+            //             <div class="property">
+            //                 <span class="property-label">Shirt ID:</span>
+            //                 <span class="property-value">${npcDef._appearance._shirtId}</span>
+            //             </div>
+            //         `;
+            //     }
+
+            //     if (npcDef._appearance._bodyId !== undefined) {
+            //         html += `
+            //             <div class="property">
+            //                 <span class="property-label">Body ID:</span>
+            //                 <span class="property-value">${npcDef._appearance._bodyId}</span>
+            //             </div>
+            //         `;
+            //     }
+
+            //     if (npcDef._appearance._legsId !== undefined) {
+            //         html += `
+            //             <div class="property">
+            //                 <span class="property-label">Legs ID:</span>
+            //                 <span class="property-value">${npcDef._appearance._legsId}</span>
+            //             </div>
+            //         `;
+            //     }
+
+            //     html += `
+            //             </div>
+            //         </div>
+            //     `;
+
+            //     // Equipment (for humans)
+            //     if (npcDef._appearance._equippedItems) {
+            //         const equippedItems = npcDef._appearance._equippedItems.filter((item: any) => item && item._id);
+            //         if (equippedItems.length > 0) {
+            //             html += `
+            //                 <div class="detail-section">
+            //                     <h3>Equipment</h3>
+            //                     <div class="recipe-grid">
+            //             `;
+
+            //             equippedItems.forEach((item: any) => {
+            //                 try {
+            //                     const itemDef = (document as any).highlite?.gameHooks?.ItemDefMap?.ItemDefMap?.get(item._id);
+            //                     const itemName = itemDef?._nameCapitalized || itemDef?._name || `Item ${item._id}`;
+            //                     const itemPos = (document as any).highlite?.gameHooks?.InventoryItemSpriteManager?.getCSSBackgroundPositionForItem(item._id);
+            //                     const spriteStyle = itemPos ? `style="background-position: ${itemPos};"` : '';
+
+            //                     html += `
+            //                         <div class="recipe-item" data-item-id="${item._id}">
+            //                             <div class="recipe-item-sprite" ${spriteStyle}></div>
+            //                             <div class="recipe-item-info">
+            //                                 <div class="recipe-item-name">${itemName}</div>
+            //                                 <div class="recipe-item-amount">${item._amount}x</div>
+            //                             </div>
+            //                         </div>
+            //                     `;
+            //                 } catch {
+            //                     html += `
+            //                         <div class="recipe-item" data-item-id="${item._id}">
+            //                             <div class="recipe-item-sprite"></div>
+            //                             <div class="recipe-item-info">
+            //                                 <div class="recipe-item-name">Item ${item._id}</div>
+            //                                 <div class="recipe-item-amount">${item._amount}x</div>
+            //                             </div>
+            //                         </div>
+            //                     `;
+            //                 }
+            //             });
+
+            //             html += `
+            //                     </div>
+            //                 </div>
+            //             `;
+            //         }
+            //     }
+            // }
+
             // Tags
             let tags: string[] = [];
             if (npcDef._canShop) tags.push('<span class="detail-tag shopkeeper">Shop</span>');
             if (npcDef._pickpocketId !== -1) tags.push('<span class="detail-tag pickpocket">Pickpocket</span>');
             if (npcDef._isAlwaysAggro) tags.push('<span class="detail-tag aggressive">Always Aggressive</span>');
+            if (npcDef._isAggressive) tags.push('<span class="detail-tag aggressive">Aggressive</span>');
+            if (npcDef._combat && npcDef._combat._spellIds && npcDef._combat._spellIds.length > 0) tags.push('<span class="detail-tag magic">Magic User</span>');
+            if (npcDef._creatureAppearance) tags.push('<span class="detail-tag creature">Creature</span>');
+            if (npcDef._appearance) tags.push('<span class="detail-tag human">Human</span>');
+            if (npcDef._combat && npcDef._combat._combat) tags.push('<span class="detail-tag combat">Combat</span>');
+            if (!npcDef._combat) tags.push('<span class="detail-tag peaceful">Peaceful</span>');
 
             if (tags.length > 0) {
                 html += `
@@ -1656,8 +2584,8 @@ export class ItemDefinitionPanel extends Plugin {
 
             container.innerHTML = html;
 
-            // Bind click events to equipped items
-            const itemElements = container.querySelectorAll('.recipe-item');
+            // Bind click events to equipped items and loot items
+            const itemElements = container.querySelectorAll('.recipe-item, .loot-item');
             const uiManager = (document as any).highlite?.managers?.UIManager;
 
             itemElements.forEach(item => {
@@ -1888,10 +2816,8 @@ export class ItemDefinitionPanel extends Plugin {
             
             /* NPC Sprites for Modal */
             .npc-sprite-modal {
-                width: 80px;
-                height: 80px;
                 background-repeat: no-repeat;
-                background-image: var(--hs-url-creature-sprites);
+                background-size: auto;
                 border: 3px solid #4a9eff;
                 border-radius: 12px;
                 margin-right: 25px;
@@ -1906,36 +2832,34 @@ export class ItemDefinitionPanel extends Plugin {
                 justify-content: center;
             }
             
+            /* Fallback styles when SpritesheetManager not available */
             .npc-sprite-modal.npc-sprite-small {
-                width: 80px;
-                height: 80px;
-                background-size: calc(var(--hs-url-creature-sprites-width)) calc(var(--hs-url-creature-sprites-height));
+                background-image: var(--hs-url-small-creature1);
+                width: 64px;
+                height: 64px;
             }
             
             .npc-sprite-modal.npc-sprite-medium {
-                width: 80px;
-                height: 160px;
-                background-size: calc(var(--hs-url-creature-sprites-width)) calc(var(--hs-url-creature-sprites-height));
+                background-image: var(--hs-url-medium-creature1);
+                width: 64px;
+                height: 128px;
             }
             
             .npc-sprite-modal.npc-sprite-large {
-                width: 160px;
-                height: 160px;
-                background-size: calc(var(--hs-url-creature-sprites-width)) calc(var(--hs-url-creature-sprites-height));
+                background-image: var(--hs-url-large-creature1);
+                width: 128px;
+                height: 128px;
             }
             
             .npc-sprite-modal.npc-sprite-largest {
+                background-image: var(--hs-url-largest-creature1);
                 width: 256px;
                 height: 184px;
-                background-size: calc(var(--hs-url-creature-sprites-largest-width)) calc(var(--hs-url-creature-sprites-largest-height));
-                background-image: var(--hs-url-creature-sprites-largest);
             }
             
             .npc-sprite-modal.npc-sprite-human {
                 width: 64px;
                 height: 128px;
-                background-repeat: no-repeat;
-                background-size: auto;
             }
             
             .npc-sprite-modal.npc-sprite-unknown {
@@ -1951,12 +2875,18 @@ export class ItemDefinitionPanel extends Plugin {
                 position: relative;
                 width: var(--hs-inventory-item-size);
                 height: var(--hs-inventory-item-size);
-                margin-right: 15px;
                 flex-shrink: 0;
                 border: 2px solid #555;
                 border-radius: 8px;
                 box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
                 overflow: hidden;
+            }
+            
+            /* Wrapper to allow badge overflow */
+            .npc-sprite-wrapper {
+                position: relative;
+                display: inline-block;
+                margin-right: 15px;
             }
             
             .item-list-item:hover .npc-sprite-container {
@@ -1971,29 +2901,25 @@ export class ItemDefinitionPanel extends Plugin {
                 font-size: 24px;
             }
             
-            /* NPC sprite sizes based on creature type */
+            /* NPC sprite sizes based on creature type - fallback when SpritesheetManager not available */
             .npc-sprite-small {
                 background-image: var(--hs-url-small-creature1);
                 background-size: auto;
-                background-position: 0 0;
             }
             
             .npc-sprite-medium {
                 background-image: var(--hs-url-medium-creature1);
                 background-size: auto;
-                background-position: 0 0;
             }
             
             .npc-sprite-large {
                 background-image: var(--hs-url-large-creature1);
                 background-size: auto;
-                background-position: 0 0;
             }
             
             .npc-sprite-largest {
                 background-image: var(--hs-url-largest-creature1);
                 background-size: auto;
-                background-position: 0 0;
             }
             
             /* Human NPCs and unknown types */
@@ -2022,60 +2948,10 @@ export class ItemDefinitionPanel extends Plugin {
                 border-radius: 10px;
                 border: 2px solid rgba(0, 0, 0, 0.5);
                 box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+                z-index: 10;
             }
             
-            /* Large NPC sprite in modal */
-            .npc-sprite-large-container {
-                width: 80px;
-                height: 80px;
-                margin-right: 25px;
-                flex-shrink: 0;
-                position: relative;
-            }
-            
-            .npc-sprite-large {
-                width: 100%;
-                height: 100%;
-                background-repeat: no-repeat;
-                background-position: 0 0;
-                image-rendering: pixelated;
-                image-rendering: -moz-crisp-edges;
-                image-rendering: crisp-edges;
-                border: 3px solid #4a9eff;
-                border-radius: 12px;
-                box-shadow: 0 4px 8px rgba(74, 158, 255, 0.3);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 36px;
-            }
-            
-            .npc-sprite-large.npc-sprite-small {
-                background-image: var(--hs-url-small-creature1);
-                background-size: auto;
-            }
-            
-            .npc-sprite-large.npc-sprite-medium {
-                background-image: var(--hs-url-medium-creature1);
-                background-size: auto;
-            }
-            
-            .npc-sprite-large.npc-sprite-large {
-                background-image: var(--hs-url-large-creature1);
-                background-size: auto;
-            }
-            
-            .npc-sprite-large.npc-sprite-largest {
-                background-image: var(--hs-url-largest-creature1);
-                background-size: auto;
-            }
-            
-            .npc-sprite-large.npc-sprite-human,
-            .npc-sprite-large.npc-sprite-unknown {
-                background: #f0f0f0;
-                background-image: none;
-                color: #333;
-            }
+
             
             /* Info section */
             .item-info {
@@ -2309,6 +3185,13 @@ export class ItemDefinitionPanel extends Plugin {
                 color: #aaa;
                 font-size: 18px;
                 margin: 0;
+            }
+            
+            .detail-level {
+                color: #4a9eff;
+                font-size: 16px;
+                margin: 4px 0 0 0;
+                font-weight: 600;
             }
             
             .detail-section {
@@ -2556,6 +3439,36 @@ export class ItemDefinitionPanel extends Plugin {
                 border-color: rgba(229, 57, 53, 0.4);
             }
             
+            .detail-tag.magic {
+                background: rgba(156, 39, 176, 0.2);
+                color: #9c27b0;
+                border-color: rgba(156, 39, 176, 0.4);
+            }
+            
+            .detail-tag.creature {
+                background: rgba(121, 85, 72, 0.2);
+                color: #8d6e63;
+                border-color: rgba(121, 85, 72, 0.4);
+            }
+            
+            .detail-tag.human {
+                background: rgba(33, 150, 243, 0.2);
+                color: #2196f3;
+                border-color: rgba(33, 150, 243, 0.4);
+            }
+            
+            .detail-tag.combat {
+                background: rgba(255, 87, 34, 0.2);
+                color: #ff5722;
+                border-color: rgba(255, 87, 34, 0.4);
+            }
+            
+            .detail-tag.peaceful {
+                background: rgba(76, 175, 80, 0.2);
+                color: #4caf50;
+                border-color: rgba(76, 175, 80, 0.4);
+            }
+            
             /* Actions */
             .detail-actions {
                 display: flex;
@@ -2586,6 +3499,410 @@ export class ItemDefinitionPanel extends Plugin {
                 transform: translateY(0);
                 box-shadow: 0 2px 4px rgba(74, 158, 255, 0.3);
             }
+
+            /* Loot Display Styles */
+            .loot-subsection {
+                margin-top: 20px;
+            }
+
+            .loot-subsection h4 {
+                margin: 0 0 10px 0;
+                color: #4a9eff;
+                font-size: 16px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+
+            .loot-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+                gap: 12px;
+                margin-top: 12px;
+            }
+
+            .loot-item {
+                display: flex;
+                align-items: center;
+                padding: 12px;
+                background: rgba(255, 255, 255, 0.05);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 8px;
+                cursor: pointer;
+                transition: all 0.2s;
+                overflow: hidden;
+            }
+
+            .loot-item:hover {
+                background: rgba(74, 158, 255, 0.2);
+                border-color: #4a9eff;
+                transform: translateY(-2px);
+                box-shadow: 0 4px 8px rgba(74, 158, 255, 0.3);
+            }
+
+            .loot-item.rare-loot {
+                border-color: #ff6b35;
+                background: rgba(255, 107, 53, 0.1);
+            }
+
+            .loot-item.rare-loot:hover {
+                background: rgba(255, 107, 53, 0.2);
+                border-color: #ff8c42;
+                box-shadow: 0 4px 8px rgba(255, 107, 53, 0.3);
+            }
+
+            .loot-item.root-loot {
+                border-color: #8bc34a;
+                background: rgba(139, 195, 74, 0.1);
+            }
+
+            .loot-item.root-loot:hover {
+                background: rgba(139, 195, 74, 0.2);
+                border-color: #9ccc65;
+                box-shadow: 0 4px 8px rgba(139, 195, 74, 0.3);
+            }
+
+            .loot-item.iou-item {
+                border-left: 4px solid #ffc107;
+            }
+
+            .loot-item-sprite {
+                width: calc(var(--hs-inventory-item-size));
+                height: calc(var(--hs-inventory-item-size));
+                background-position: 0rem 0rem;
+                background-repeat: no-repeat;
+                background-size: calc(var(--hs-url-inventory-items-width)) calc(var(--hs-url-inventory-items-height));
+                background-image: var(--hs-url-inventory-items);
+                border: 2px solid #555;
+                border-radius: 6px;
+                margin-right: 12px;
+                flex-shrink: 0;
+                image-rendering: pixelated;
+                image-rendering: -moz-crisp-edges;
+                image-rendering: crisp-edges;
+            }
+
+            .loot-item:hover .loot-item-sprite {
+                border-color: #4a9eff;
+            }
+
+            .loot-item.rare-loot:hover .loot-item-sprite {
+                border-color: #ff8c42;
+            }
+
+            .loot-item.root-loot:hover .loot-item-sprite {
+                border-color: #9ccc65;
+            }
+
+            .loot-item-info {
+                flex: 1;
+                min-width: 0;
+                overflow: hidden;
+            }
+
+            .loot-item-name {
+                color: white;
+                font-size: 14px;
+                font-weight: 600;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                margin-bottom: 3px;
+            }
+
+            .loot-item-amount {
+                color: #4a9eff;
+                font-size: 12px;
+                font-weight: 500;
+                margin-bottom: 3px;
+            }
+
+            .loot-item-odds {
+                color: #ffc107;
+                font-size: 12px;
+                font-weight: 600;
+            }
+
+            .loot-special {
+                padding: 15px;
+                background: rgba(255, 193, 7, 0.1);
+                border: 1px solid #ffc107;
+                border-radius: 8px;
+                margin-top: 12px;
+            }
+
+            .treasure-map-info {
+                color: #ffc107;
+                font-weight: 600;
+                font-size: 14px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+
+            .treasure-map-info::before {
+                content: "🗺️";
+                font-size: 16px;
+            }
+
+            /* NPC Drops Section (for item modals) */
+            .npc-drops-container {
+                max-height: 300px;
+                overflow-y: auto;
+                overflow-x: hidden;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 8px;
+                background: rgba(0, 0, 0, 0.2);
+                margin-top: 12px;
+                padding: 12px;
+            }
+
+            .npc-drops-container::-webkit-scrollbar {
+                width: 12px;
+            }
+
+            .npc-drops-container::-webkit-scrollbar-track {
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 6px;
+                margin: 2px;
+            }
+
+            .npc-drops-container::-webkit-scrollbar-thumb {
+                background: #4a9eff;
+                border-radius: 6px;
+                border: 2px solid rgba(16, 16, 16, 0.95);
+            }
+
+            .npc-drops-container::-webkit-scrollbar-thumb:hover {
+                background: #66b3ff;
+            }
+
+            /* Loot Drops Section (for NPC modals) - Main container for all drops */
+            .drops-section-container {
+                max-height: 400px;
+                overflow-y: auto;
+                overflow-x: hidden;
+                padding-right: 8px;
+                margin-top: 12px;
+            }
+
+            .drops-section-container::-webkit-scrollbar {
+                width: 12px;
+            }
+
+            .drops-section-container::-webkit-scrollbar-track {
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 6px;
+                margin: 2px;
+            }
+
+            .drops-section-container::-webkit-scrollbar-thumb {
+                background: #4a9eff;
+                border-radius: 6px;
+                border: 2px solid rgba(16, 16, 16, 0.95);
+            }
+
+            .drops-section-container::-webkit-scrollbar-thumb:hover {
+                background: #66b3ff;
+            }
+
+            /* Remove individual loot grid scrolling */
+            .loot-grid {
+                max-height: none !important;
+                overflow: visible !important;
+            }
+
+            .npc-drop-item {
+                display: flex;
+                align-items: center;
+                padding: 12px;
+                margin-bottom: 10px;
+                background: rgba(255, 255, 255, 0.05);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 8px;
+                cursor: pointer;
+                transition: all 0.2s;
+                overflow: hidden;
+            }
+
+            .npc-drop-item:last-child {
+                margin-bottom: 0;
+            }
+
+            .npc-drop-item:hover {
+                background: rgba(74, 158, 255, 0.2);
+                border-color: #4a9eff;
+                transform: translateX(3px);
+                box-shadow: 0 2px 8px rgba(74, 158, 255, 0.3);
+            }
+
+            .npc-drop-sprite-wrapper {
+                position: relative;
+                margin-right: 15px;
+                flex-shrink: 0;
+            }
+
+            .npc-drop-sprite {
+                width: 48px;
+                height: 48px;
+                border: 2px solid #555;
+                border-radius: 6px;
+                background-repeat: no-repeat;
+                image-rendering: pixelated;
+                image-rendering: -moz-crisp-edges;
+                image-rendering: crisp-edges;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 20px;
+                overflow: hidden;
+                position: relative;
+            }
+
+            /* Scaled sprite containers for different creature sizes in drops */
+            .npc-drop-sprite.npc-sprite-small .sprite-content {
+                width: 64px;
+                height: 64px;
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%) scale(0.75);
+                transform-origin: center center;
+            }
+
+            .npc-drop-sprite.npc-sprite-medium .sprite-content {
+                width: 64px;
+                height: 128px;
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%) scale(0.375);
+                transform-origin: center center;
+            }
+
+            .npc-drop-sprite.npc-sprite-large .sprite-content {
+                width: 128px;
+                height: 128px;
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%) scale(0.375);
+                transform-origin: center center;
+            }
+
+            .npc-drop-sprite.npc-sprite-largest .sprite-content {
+                width: 256px;
+                height: 184px;
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%) scale(0.1875);
+                transform-origin: center center;
+            }
+
+            .npc-drop-sprite.npc-sprite-small {
+                background-image: var(--hs-url-small-creature1);
+            }
+
+            .npc-drop-sprite.npc-sprite-medium {
+                background-image: var(--hs-url-medium-creature1);
+            }
+
+            .npc-drop-sprite.npc-sprite-large {
+                background-image: var(--hs-url-large-creature1);
+            }
+
+            .npc-drop-sprite.npc-sprite-largest {
+                background-image: var(--hs-url-largest-creature1);
+            }
+
+            .npc-drop-sprite.npc-sprite-human {
+                background-color: #f0f0f0;
+                color: #666;
+            }
+
+            .npc-drop-sprite.npc-sprite-unknown {
+                background-color: rgba(255, 255, 255, 0.1);
+                color: #999;
+                font-size: 24px;
+            }
+
+            .npc-drop-item:hover .npc-drop-sprite {
+                border-color: #4a9eff;
+            }
+
+            .npc-drop-level-badge {
+                position: absolute;
+                top: -6px;
+                right: -6px;
+                background: #4a9eff;
+                color: white;
+                border-radius: 50%;
+                width: 20px;
+                height: 20px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 10px;
+                font-weight: bold;
+                border: 2px solid rgba(16, 16, 16, 0.95);
+                z-index: 10;
+            }
+
+            .npc-drop-info {
+                flex: 1;
+                min-width: 0;
+                overflow: hidden;
+            }
+
+            .npc-drop-name {
+                color: white;
+                font-size: 16px;
+                font-weight: 600;
+                margin-bottom: 6px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            .npc-drop-details {
+                display: flex;
+                flex-direction: column;
+                gap: 3px;
+            }
+
+            .npc-drop-type {
+                font-size: 13px;
+                font-weight: 500;
+                padding: 2px 6px;
+                border-radius: 4px;
+                display: inline-block;
+                max-width: fit-content;
+            }
+
+            .npc-drop-type.guaranteed {
+                background: rgba(76, 175, 80, 0.2);
+                color: #4caf50;
+                border: 1px solid rgba(76, 175, 80, 0.4);
+            }
+
+            .npc-drop-type.regular {
+                background: rgba(33, 150, 243, 0.2);
+                color: #2196f3;
+                border: 1px solid rgba(33, 150, 243, 0.4);
+            }
+
+            .npc-drop-type.rare {
+                background: rgba(255, 107, 53, 0.2);
+                color: #ff6b35;
+                border: 1px solid rgba(255, 107, 53, 0.4);
+            }
+
+            .npc-drop-type.root {
+                background: rgba(139, 195, 74, 0.2);
+                color: #8bc34a;
+                border: 1px solid rgba(139, 195, 74, 0.4);
+            }
         `;
         document.head.appendChild(style);
     }
@@ -2610,12 +3927,27 @@ export class ItemDefinitionPanel extends Plugin {
             delete (window as any).highliteItemPanel;
         }
 
-        // Clear references
+        // Clear all data arrays
+        this.allItems = [];
+        this.filteredItems = [];
+        this.allNpcs = [];
+        this.filteredNpcs = [];
+        this.lootData = null;
+
+        // Reset states
+        this.itemsLoaded = false;
+        this.npcsLoaded = false;
+        this.isLoggedIn = false;
+        this.currentPage = 0;
+        this.selectedItemId = null;
+        this.currentView = 'items';
+
+        // Clear DOM references
         this.panelContent = null;
         this.itemListContainer = null;
         this.searchInput = null;
         this.modalOverlay = null;
-        this.itemsLoaded = false;
-        this.npcsLoaded = false;
+        this.itemToggle = null;
+        this.npcToggle = null;
     }
 } 
