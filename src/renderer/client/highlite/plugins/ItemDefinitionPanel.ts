@@ -58,7 +58,7 @@ export class ItemDefinitionPanel extends Plugin {
         this.loadLootData();
     }
 
-    SocketManager_loggedOut(): void {
+    SocketManager_handleLoggedOut(): void {
         // Mark as logged out
         this.isLoggedIn = false;
 
@@ -1328,7 +1328,7 @@ export class ItemDefinitionPanel extends Plugin {
             if (!spritesheetManager) return;
 
             // Get access to the game's tk class if available
-            const appearanceUtils = (document as any).highlite.gameHooks.appearanceUtils;
+            const appearanceUtils = (document as any).highlite.gameHooks.AppearanceUtils;
 
             // Build appearance arrays using the game's format
             const appearanceIds = new Array(5);
@@ -1503,36 +1503,43 @@ export class ItemDefinitionPanel extends Plugin {
         const modalContent = document.createElement('div');
         modalContent.className = 'item-modal-content';
 
-        // Allow scrolling within modal content but prevent propagation
         modalContent.addEventListener('wheel', (e: WheelEvent) => {
             e.stopPropagation();
+            const target = e.target as HTMLElement;
+            const scrollableContainer = target.closest('.npc-drops-container, .drops-section-container');
+            
+            if (scrollableContainer) {
+                const { scrollTop, scrollHeight, clientHeight } = scrollableContainer;
+                const delta = e.deltaY;
 
-            // Prevent scroll if at boundaries
+                if (delta < 0 && scrollTop === 0) {
+                    e.preventDefault();
+                }
+                else if (delta > 0 && scrollTop + clientHeight >= scrollHeight - 1) {
+                    e.preventDefault();
+                }
+                return;
+            }
+
             const { scrollTop, scrollHeight, clientHeight } = modalContent;
             const delta = e.deltaY;
-
-            // At top and scrolling up
             if (delta < 0 && scrollTop === 0) {
                 e.preventDefault();
             }
-            // At bottom and scrolling down
             else if (delta > 0 && scrollTop + clientHeight >= scrollHeight - 1) {
                 e.preventDefault();
             }
         }, { passive: false });
 
-        // Prevent touch scrolling from propagating
         modalContent.addEventListener('touchmove', (e: TouchEvent) => {
             e.stopPropagation();
         }, { passive: false });
 
-        // Load item details into modal
         this.loadItemDetailsIntoModal(modalContent, itemId);
 
         modalContainer.appendChild(modalContent);
         this.modalOverlay.appendChild(modalContainer);
 
-        // Append to hs-screen-mask if logged in, otherwise to body
         const container = this.isLoggedIn ? document.getElementById('hs-screen-mask') : document.body;
         if (container) {
             container.appendChild(this.modalOverlay);
@@ -1540,7 +1547,6 @@ export class ItemDefinitionPanel extends Plugin {
             document.body.appendChild(this.modalOverlay);
         }
 
-        // Add escape key handler
         const escapeHandler = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
                 this.closeModal();
@@ -1870,7 +1876,6 @@ export class ItemDefinitionPanel extends Plugin {
                         this.showNpcModal(parseInt(npcId));
                     });
                 } else if (npcId) {
-                    // Fallback
                     (npcItem as HTMLElement).onclick = () => {
                         this.showNpcModal(parseInt(npcId));
                     };
@@ -1946,7 +1951,27 @@ export class ItemDefinitionPanel extends Plugin {
         modalContent.addEventListener('wheel', (e: WheelEvent) => {
             e.stopPropagation();
 
-            // Prevent scroll if at boundaries
+            // Check if we're scrolling within a specific scrollable container
+            const target = e.target as HTMLElement;
+            const scrollableContainer = target.closest('.npc-drops-container, .drops-section-container');
+            
+            if (scrollableContainer) {
+                // Allow scrolling within scrollable containers
+                const { scrollTop, scrollHeight, clientHeight } = scrollableContainer;
+                const delta = e.deltaY;
+
+                // At top and scrolling up
+                if (delta < 0 && scrollTop === 0) {
+                    e.preventDefault();
+                }
+                // At bottom and scrolling down
+                else if (delta > 0 && scrollTop + clientHeight >= scrollHeight - 1) {
+                    e.preventDefault();
+                }
+                return;
+            }
+
+            // For main modal content, prevent scroll if at boundaries
             const { scrollTop, scrollHeight, clientHeight } = modalContent;
             const delta = e.deltaY;
 

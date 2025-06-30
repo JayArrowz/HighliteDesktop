@@ -65,6 +65,7 @@ export class Highlite {
         this.hookManager.registerClass("Ck", "SpriteSheetManager"); //Tip to find: contains getter PlayerSpritesheetInfo 
         this.hookManager.registerClass("EB", "NpcDefinitionManager");
         this.hookManager.registerClass("IV", "SpellDefinitionManager");
+        this.hookManager.registerClass("tk", "AppearanceUtils");
 
 
         // Function Hook-ins
