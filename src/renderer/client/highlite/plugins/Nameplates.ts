@@ -43,6 +43,9 @@ export class Nameplates extends Plugin {
 
     start(): void {
         this.log("Started");
+        if (this.settings.enable.value) {
+            this.setupAllElements();
+        }
     }
 
     stop(): void {
@@ -51,18 +54,9 @@ export class Nameplates extends Plugin {
     }
 
     SocketManager_loggedIn(): void {
-        this.DOMElement = document.createElement('div');
-        this.DOMElement.id = "highlite-nameplates";
-        this.DOMElement.style.position = "absolute";
-        this.DOMElement.style.pointerEvents = "none";
-        this.DOMElement.style.zIndex = "1";
-        this.DOMElement.style.overflow = "hidden";
-        this.DOMElement.style.width = "100%";
-        this.DOMElement.style.height = "100%";
-        this.DOMElement.style.fontFamily = "Inter";
-        this.DOMElement.style.fontSize = "12px";
-        this.DOMElement.style.fontWeight = "bold";
-        document.getElementById('hs-screen-mask')?.appendChild(this.DOMElement);
+        if (this.settings.enable.value) {
+            this.setupAllElements();
+        }
     }
 
     SocketManager_handleLoggedOut(): void {
@@ -587,5 +581,21 @@ export class Nameplates extends Plugin {
             this.DOMElement.remove();
             this.DOMElement = null;
         }
+    }
+
+    private setupAllElements(): void {
+        this.cleanupAllElements();
+        this.DOMElement = document.createElement('div');
+        this.DOMElement.id = "highlite-nameplates";
+        this.DOMElement.style.position = "absolute";
+        this.DOMElement.style.pointerEvents = "none";
+        this.DOMElement.style.zIndex = "1";
+        this.DOMElement.style.overflow = "hidden";
+        this.DOMElement.style.width = "100%";
+        this.DOMElement.style.height = "100%";
+        this.DOMElement.style.fontFamily = "Inter";
+        this.DOMElement.style.fontSize = "12px";
+        this.DOMElement.style.fontWeight = "bold";
+        document.getElementById('hs-screen-mask')?.appendChild(this.DOMElement);
     }
 }
