@@ -2,8 +2,8 @@ import { Plugin } from "../core/interfaces/highlite/plugin/plugin.class";
 import { PanelManager } from "../core/managers/highlite/panelManager";
 import { getEquipmentTypeName, getSkillName } from "../core/utilities/lookupUtils";
 
-export class ItemDefinitionPanel extends Plugin {
-    pluginName = "Item Definition Panel";
+export class DefinitionsPanel extends Plugin {
+    pluginName = "Definitions Panel";
     author = "Highlite";
     panelManager: PanelManager = new PanelManager();
     panelContent: HTMLElement | null = null;
@@ -26,14 +26,14 @@ export class ItemDefinitionPanel extends Plugin {
     private lootData: any = null;
 
     init(): void {
-        this.log("Item Definition Panel initialized");
+        this.log("Definitions Panel initialized");
 
         // Add global reference for button onclick handlers
         (window as any).highliteItemPanel = this;
     }
 
     start(): void {
-        this.log("Item Definition Panel started");
+        this.log("Definitions Panel started");
         if (!this.settings.enable.value) {
             return;
         }
@@ -1385,7 +1385,7 @@ export class ItemDefinitionPanel extends Plugin {
 
         this.itemListContainer.innerHTML = `
             <div class="item-loading">
-                <p>Loading item definitions...</p>
+                <p>Loading definitions...</p>
                 <p class="item-loading-hint">Please log in to view items</p>
             </div>
         `;
@@ -3933,7 +3933,7 @@ export class ItemDefinitionPanel extends Plugin {
     }
 
     stop(): void {
-        this.log("Item Definition Panel stopped");
+        this.log("Definitions Panel stopped");
 
         // Close any open modal
         this.closeModal();
