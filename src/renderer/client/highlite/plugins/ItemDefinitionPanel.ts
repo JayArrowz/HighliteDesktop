@@ -509,9 +509,26 @@ export class ItemDefinitionPanel extends Plugin {
             const creatureType = typeInfo.creatureType;
             const creatureSpriteId = typeInfo.creatureSpriteId || 0;
             const sizeClass = this.getCreatureSizeClass(creatureType);
+            const spriteInfo = this.getCreatureSpriteInfo(creatureType);
 
+            // Create inner sprite element with actual sprite dimensions
             sprite.className = `npc-sprite npc-sprite-${sizeClass}`;
             sprite.dataset.creatureType = creatureType.toString();
+            
+            // Set the inner sprite to the actual sprite dimensions
+            sprite.style.width = `${spriteInfo.spriteWidth}px`;
+            sprite.style.height = `${spriteInfo.spriteHeight}px`;
+            sprite.style.position = 'absolute';
+            sprite.style.left = '50%';
+            sprite.style.top = '50%';
+            
+            // Scale sprites to fit in container
+            let scale = 1;
+            if (sizeClass === 'medium') scale = 0.7;
+            else if (sizeClass === 'large') scale = 0.5;
+            else if (sizeClass === 'largest') scale = 0.35;
+            
+            sprite.style.transform = `translate(-50%, -50%) scale(${scale})`;
 
             // Based on createNPCFromPacketData, the game uses: 15 * CreatureSpriteID
             const spriteFrameIndex = 15 * creatureSpriteId;
@@ -521,9 +538,17 @@ export class ItemDefinitionPanel extends Plugin {
             // Human NPCs with customizable appearance
             sprite.className = "npc-sprite npc-sprite-human";
             sprite.dataset.npcId = npc._id.toString();
+            
+            // Human sprites are 64x128
+            sprite.style.width = '64px';
+            sprite.style.height = '128px';
+            sprite.style.position = 'absolute';
+            sprite.style.left = '50%';
+            sprite.style.top = '50%';
+            sprite.style.transform = 'translate(-50%, -50%) scale(0.7)';  // Scale down to fit better
 
-            // Try to access cached human sprite from SpritesheetManager
-            const spritesheetManager = document.highlite.gameHooks.SpriteSheetManager.Instance;
+                          // Try to access cached human sprite from SpritesheetManager
+             const spritesheetManager = (document as any).highlite.gameHooks.SpriteSheetManager.Instance;
             const humanSpriteInfo = spritesheetManager?.HumanNPCSpritesheetInfo?.get(npc._id);
 
             if (humanSpriteInfo && humanSpriteInfo.SpritesheetURL) {
@@ -712,7 +737,7 @@ export class ItemDefinitionPanel extends Plugin {
         try {
             if (!npc._appearance) return;
 
-            const spritesheetManager = document.highlite.gameHooks.SpriteSheetManager.Instance;
+                         const spritesheetManager = (document as any).highlite.gameHooks.SpriteSheetManager.Instance;
             if (!spritesheetManager) return;
 
             // Get access to the game's tk class if available
@@ -752,7 +777,7 @@ export class ItemDefinitionPanel extends Plugin {
             }
 
             // PF enum from the game
-            const PF = document.client.get("PF");
+                         const PF = (document as any).client.get("PF");
 
             // Generate a unique entity ID for this request
             const entityId = Date.now() + npc._id;
@@ -1384,7 +1409,7 @@ export class ItemDefinitionPanel extends Plugin {
                 spriteHtml = `<div class="npc-sprite-modal npc-sprite-${sizeClass}" data-creature-type="${creatureType}" style="background-position: -${spritePos.x}px -${spritePos.y}px;"></div>`;
             } else if (typeInfo.isHuman) {
                 // Try to get cached human sprite
-                const spritesheetManager = document.highlite.gameHooks.SpriteSheetManager.Instance;
+                const spritesheetManager = (document as any).highlite.gameHooks.SpriteSheetManager.Instance;
                 const humanSpriteInfo = spritesheetManager?.HumanNPCSpritesheetInfo?.get(npcDef._id);
 
                 if (humanSpriteInfo && humanSpriteInfo.SpritesheetURL) {
@@ -1928,51 +1953,47 @@ export class ItemDefinitionPanel extends Plugin {
                 height: var(--hs-inventory-item-size);
                 margin-right: 15px;
                 flex-shrink: 0;
-            }
-            
-            .npc-sprite {
-                width: 100%;
-                height: 100%;
-                background-repeat: no-repeat;
-                background-position: 0 0;
-                image-rendering: pixelated;
-                image-rendering: -moz-crisp-edges;
-                image-rendering: crisp-edges;
                 border: 2px solid #555;
                 border-radius: 8px;
                 box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 24px;
+                overflow: hidden;
             }
             
-            .item-list-item:hover .npc-sprite {
+            .item-list-item:hover .npc-sprite-container {
                 border-color: #4a9eff;
+            }
+            
+            .npc-sprite {
+                background-repeat: no-repeat;
+                image-rendering: pixelated;
+                image-rendering: -moz-crisp-edges;
+                image-rendering: crisp-edges;
+                font-size: 24px;
             }
             
             /* NPC sprite sizes based on creature type */
             .npc-sprite-small {
                 background-image: var(--hs-url-small-creature1);
                 background-size: auto;
+                background-position: 0 0;
             }
             
             .npc-sprite-medium {
                 background-image: var(--hs-url-medium-creature1);
-                /* Medium sprites are 64x128, so we need to scale them to fit */
                 background-size: auto;
+                background-position: 0 0;
             }
             
             .npc-sprite-large {
                 background-image: var(--hs-url-large-creature1);
-                /* Large sprites are 128x128, so scale to fit container */
                 background-size: auto;
+                background-position: 0 0;
             }
             
             .npc-sprite-largest {
                 background-image: var(--hs-url-largest-creature1);
-                /* Largest sprites are 256x184, scale appropriately */
                 background-size: auto;
+                background-position: 0 0;
             }
             
             /* Human NPCs and unknown types */
@@ -1984,6 +2005,9 @@ export class ItemDefinitionPanel extends Plugin {
                 display: flex;
                 align-items: center;
                 justify-content: center;
+                width: 100%;
+                height: 100%;
+                position: relative;
             }
             
             .npc-level-badge {
