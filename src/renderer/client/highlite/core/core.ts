@@ -66,6 +66,7 @@ export class Highlite {
         this.hookManager.registerClass("EB", "NpcDefinitionManager");
         this.hookManager.registerClass("IV", "SpellDefinitionManager");
         this.hookManager.registerClass("tk", "AppearanceUtils");
+        this.hookManager.registerClass("SR", "BlobLoader");
 
 
         // Function Hook-ins

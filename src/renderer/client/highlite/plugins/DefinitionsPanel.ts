@@ -24,6 +24,9 @@ export class DefinitionsPanel extends Plugin {
     private itemToggle: HTMLButtonElement | null = null;
     private npcToggle: HTMLButtonElement | null = null;
     private lootData: any = null;
+    private spriteReferences: Map<string, number> = new Map(); // Track sprite URL usage count
+    private spriteContexts: Map<string, Set<string>> = new Map(); // Track which contexts use each URL
+    private activeSpriteUrls: Set<string> = new Set(); // Track URLs we've created
 
     init(): void {
         this.log("Definitions Panel initialized");
@@ -64,6 +67,9 @@ export class DefinitionsPanel extends Plugin {
 
         // Close any open modal
         this.closeModal();
+
+        // Clean up all sprite references
+        this.cleanupAllSprites();
 
         // Reset loaded states
         this.itemsLoaded = false;
@@ -186,6 +192,9 @@ export class DefinitionsPanel extends Plugin {
     }
 
     private switchView(view: 'items' | 'npcs'): void {
+        // Clean up sprites from previous view
+        this.cleanupSidebarSprites();
+
         this.currentView = view;
         this.currentPage = 0;
 
@@ -759,6 +768,10 @@ export class DefinitionsPanel extends Plugin {
                         const spriteFrameIndex = 15 * creatureSpriteId;
                         const spritePos = this.calculateSpritePositionFromId(spriteFrameIndex, creatureType);
                         spriteContent.style.backgroundPosition = `-${spritePos.x}px -${spritePos.y}px`;
+                        
+                        // Track sprite usage
+                        (spriteElement as HTMLElement).setAttribute('data-sprite-modal', 'true');
+                        this.trackSpriteUsage(spriteElement as HTMLElement, spriteInfo.SpritesheetURL, 'modal');
                     } else {
                         // Fallback to CSS approach
                         const spriteFrameIndex = 15 * creatureSpriteId;
@@ -794,6 +807,10 @@ export class DefinitionsPanel extends Plugin {
                     (spriteElement as HTMLElement).style.backgroundImage = `url('${humanSpriteInfo.SpritesheetURL}')`;
                     (spriteElement as HTMLElement).style.backgroundPosition = "-71px 0px";
                     (spriteElement as HTMLElement).style.backgroundSize = "auto";
+                    
+                    // Track sprite usage
+                    (spriteElement as HTMLElement).setAttribute('data-sprite-modal', 'true');
+                    this.trackSpriteUsage(spriteElement as HTMLElement, humanSpriteInfo.SpritesheetURL, 'modal');
                 } else {
                     // No cached sprite, show placeholder initially
                     spriteElement.innerHTML = "👤";
@@ -819,6 +836,9 @@ export class DefinitionsPanel extends Plugin {
                                 targetElement.style.backgroundPosition = "-70px 0px";
                                 targetElement.style.backgroundSize = "auto";
                                 targetElement.style.backgroundColor = "transparent";
+                                targetElement.setAttribute('data-sprite-modal', 'true');
+                                // Track sprite usage
+                                this.trackSpriteUsage(targetElement, spriteInfo.SpritesheetURL, 'modal');
                             }
                         }
                     }, 100); // Poll every 100ms
@@ -931,11 +951,15 @@ export class DefinitionsPanel extends Plugin {
     private renderItemList(): void {
         if (!this.itemListContainer) return;
 
-        this.itemListContainer.innerHTML = "";
-
         const startIndex = this.currentPage * this.itemsPerPage;
         const endIndex = Math.min(startIndex + this.itemsPerPage, this.filteredItems.length);
         const pageItems = this.filteredItems.slice(startIndex, endIndex);
+
+        // Get item IDs that will be displayed in the new render (items don't need sprite preservation like NPCs)
+        // Clean up sprites from previous render
+        this.cleanupSidebarSprites();
+
+        this.itemListContainer.innerHTML = "";
 
         pageItems.forEach(item => {
             const itemElement = this.createItemElement(item);
@@ -956,6 +980,19 @@ export class DefinitionsPanel extends Plugin {
 
     private renderNpcList(): void {
         if (!this.itemListContainer) return;
+
+        // Only clean up sprites if the container is not empty (avoid cleaning during initial load)
+        if (this.itemListContainer.children.length > 0) {
+            const startIndex = this.currentPage * this.itemsPerPage;
+            const endIndex = Math.min(startIndex + this.itemsPerPage, this.filteredNpcs.length);
+            const pageNpcs = this.filteredNpcs.slice(startIndex, endIndex);
+
+            // Get NPC IDs that will be displayed in the new render
+            const newNpcIds = new Set(pageNpcs.map(npc => npc._id));
+
+            // Clean up sprites from previous render, but preserve ones we'll reuse
+            this.cleanupSidebarSprites(newNpcIds);
+        }
 
         this.itemListContainer.innerHTML = "";
 
@@ -1081,6 +1118,10 @@ export class DefinitionsPanel extends Plugin {
                     const spriteFrameIndex = 15 * creatureSpriteId;
                     const spritePos = this.calculateSpritePositionFromId(spriteFrameIndex, creatureType);
                     sprite.style.backgroundPosition = `-${spritePos.x}px -${spritePos.y}px`;
+                    
+                    // Track sprite usage
+                    sprite.setAttribute('data-sprite-sidebar', 'true');
+                    setTimeout(() => this.trackSpriteUsage(sprite, spriteInfo.SpritesheetURL, 'sidebar'), 0);
                 } else {
                     // Fallback to CSS approach if sprite info not available
                     sprite.className = `npc-sprite npc-sprite-${sizeClass}`;
@@ -1143,6 +1184,10 @@ export class DefinitionsPanel extends Plugin {
                 // Adjust Y position to show head area (positive Y moves down)
                 sprite.style.backgroundPosition = "-65px 25px";
                 sprite.style.backgroundSize = "auto";
+                
+                // Track sprite usage
+                sprite.setAttribute('data-sprite-sidebar', 'true');
+                setTimeout(() => this.trackSpriteUsage(sprite, humanSpriteInfo.SpritesheetURL, 'sidebar'), 0);
             } else {
                 // No cached sprite, show placeholder initially
                 sprite.innerHTML = "👤";
@@ -1167,6 +1212,9 @@ export class DefinitionsPanel extends Plugin {
                             spriteElement.style.backgroundPosition = "-64px 25px";
                             spriteElement.style.backgroundSize = "auto";
                             spriteElement.style.backgroundColor = "transparent";
+                            spriteElement.setAttribute('data-sprite-sidebar', 'true');
+                            // Track sprite usage
+                            this.trackSpriteUsage(spriteElement, spriteInfo.SpritesheetURL, 'sidebar');
                         }
                     }
                 }, 100); // Poll every 100ms
@@ -1361,7 +1409,7 @@ export class DefinitionsPanel extends Plugin {
             const entityTypes = (document as any).highlite.gameLookups["EntityTypes"];
 
             // Generate a unique entity ID for this request
-            const entityId = Date.now() + npc._id;
+            const entityId = 20000 + npc._id;
 
             // Call the game's sprite sheet generation
             spritesheetManager.loadHumanSpritesheet(
@@ -1377,8 +1425,256 @@ export class DefinitionsPanel extends Plugin {
         }
     }
 
+    // Sprite Reference Management
+    private addSpriteReference(spriteUrl: string, context: 'sidebar' | 'modal'): void {
+        if (!spriteUrl) return;
+        
+        // Track the URL as one we've created
+        this.activeSpriteUrls.add(spriteUrl);
+        
+        // Increment reference count
+        const currentCount = this.spriteReferences.get(spriteUrl) || 0;
+        this.spriteReferences.set(spriteUrl, currentCount + 1);
+        
+        // Store context information for this URL
+        const existingContexts = this.spriteContexts.get(spriteUrl) || new Set<string>();
+        existingContexts.add(context);
+        this.spriteContexts.set(spriteUrl, existingContexts);
+        
+        // Add context attribute to track where it's used
+        const contextAttr = `data-sprite-${context}`;
+        const elements = document.querySelectorAll(`[style*="${spriteUrl}"]`);
+        elements.forEach(el => {
+            (el as HTMLElement).setAttribute(contextAttr, 'true');
+        });
+    }
 
+    private removeSpriteReference(spriteUrl: string, context: 'sidebar' | 'modal'): void {
+        if (!spriteUrl || !this.spriteReferences.has(spriteUrl)) return;
+        
+        // Remove this context from the URL's context set
+        const contexts = this.spriteContexts.get(spriteUrl);
+        if (contexts) {
+            contexts.delete(context);
+            if (contexts.size === 0) {
+                this.spriteContexts.delete(spriteUrl);
+            }
+        }
+        
+        const currentCount = this.spriteReferences.get(spriteUrl) || 0;
+        const newCount = Math.max(0, currentCount - 1);
+        
+        if (newCount === 0) {
+            // Double-check that the URL is not still being used anywhere in the DOM
+            const stillInUse = this.isSpriteStillInUse(spriteUrl);
+            if (stillInUse) {
+                // Reset the reference count to 1 to prevent future revocation attempts
+                this.spriteReferences.set(spriteUrl, 1);
+                return;
+            }
+            
+            // No more references, clean up the URL
+            this.spriteReferences.delete(spriteUrl);
+            this.spriteContexts.delete(spriteUrl);
+            this.activeSpriteUrls.delete(spriteUrl);
+            
+            try {
+                const blobLoader = (document as any).highlite?.gameHooks?.BlobLoader?.Instance;
+                if (blobLoader && blobLoader.revokeObjectURL) {
+                    this.log(`Revoking sprite URL: ${spriteUrl}`);
+                    blobLoader.revokeObjectURL(spriteUrl);
+                }
+                
+                // Remove from SpriteSheetManager caches (URL is definitely being revoked)
+                this.removeFromSpriteSheetManagerCache(spriteUrl, true);
+            } catch (error) {
+                this.error(`Failed to revoke sprite URL: ${error}`);
+            }
+        } else {
+            this.spriteReferences.set(spriteUrl, newCount);
+        }
+    }
 
+    private cleanupSidebarSprites(preserveNpcIds?: Set<number>): void {
+        // Find all sprites in sidebar and check which can be safely removed
+        if (!this.itemListContainer) return;
+        
+        const spriteElements = this.itemListContainer.querySelectorAll('[data-sprite-sidebar]');
+        
+        spriteElements.forEach(el => {
+            const style = (el as HTMLElement).style.backgroundImage;
+            if (style && style.includes('blob:')) {
+                const urlMatch = style.match(/url\("?(blob:[^"]+)"?\)/);
+                if (urlMatch) {
+                    const spriteUrl = urlMatch[1];
+                    
+                    // Check if this sprite belongs to an NPC we want to preserve
+                    let shouldPreserve = false;
+                    if (preserveNpcIds) {
+                        // Look for data-npc-id on the sprite element or its parent NPC element
+                        let npcId = (el as HTMLElement).getAttribute('data-npc-id');
+                        if (!npcId) {
+                            const npcElement = (el as HTMLElement).closest('[data-npc-id]');
+                            if (npcElement) {
+                                npcId = npcElement.getAttribute('data-npc-id');
+                            }
+                        }
+                        if (npcId && preserveNpcIds.has(parseInt(npcId))) {
+                            shouldPreserve = true;
+                        }
+                    }
+                    
+                    // Check if this URL is still being used in the modal
+                    const stillUsedInModal = this.isSpriteUsedInModal(spriteUrl);
+                    
+                    if (stillUsedInModal || shouldPreserve) {
+                        this.log(`Preserving sprite URL ${stillUsedInModal ? '(used in modal)' : '(preserved NPC)'}: ${spriteUrl}`);
+                        // Remove the context from our tracking but keep the reference count
+                        const contexts = this.spriteContexts.get(spriteUrl);
+                        if (contexts) {
+                            contexts.delete('sidebar');
+                            if (contexts.size === 0) {
+                                this.spriteContexts.delete(spriteUrl);
+                            }
+                        }
+                        // Remove the context attribute
+                        (el as HTMLElement).removeAttribute('data-sprite-sidebar');
+                    } else {
+                        // Safe to remove the reference
+                        this.removeSpriteReference(spriteUrl, 'sidebar');
+                    }
+                }
+            }
+        });
+    }
+
+    private cleanupModalSprites(): void {
+        // Find all sprites in modal and remove their references
+        if (!this.modalOverlay) return;
+        
+        const spriteElements = this.modalOverlay.querySelectorAll('[data-sprite-modal]');
+        spriteElements.forEach(el => {
+            const style = (el as HTMLElement).style.backgroundImage;
+            if (style && style.includes('blob:')) {
+                const urlMatch = style.match(/url\("?(blob:[^"]+)"?\)/);
+                if (urlMatch) {
+                    this.removeSpriteReference(urlMatch[1], 'modal');
+                }
+            }
+        });
+    }
+
+    private cleanupAllSprites(): void {
+        // Clean up all sprite references
+        for (const spriteUrl of this.activeSpriteUrls) {
+            try {
+                const blobLoader = (document as any).highlite?.gameHooks?.BlobLoader?.Instance;
+                if (blobLoader && blobLoader.revokeObjectURL) {
+                    this.log(`Revoking sprite URL: ${spriteUrl}`);
+                    blobLoader.revokeObjectURL(spriteUrl);
+                }
+                
+                // Remove from SpriteSheetManager caches (force removal since we're cleaning up everything)
+                this.removeFromSpriteSheetManagerCache(spriteUrl, true);
+            } catch (error) {
+                this.error(`Failed to revoke sprite URL: ${error}`);
+            }
+        }
+        
+        this.spriteReferences.clear();
+        this.spriteContexts.clear();
+        this.activeSpriteUrls.clear();
+    }
+
+    private trackSpriteUsage(element: HTMLElement, spriteUrl: string, context: 'sidebar' | 'modal'): void {
+        if (!spriteUrl) return;
+        
+        // Add reference tracking
+        this.addSpriteReference(spriteUrl, context);
+        
+        // Mark element with context
+        element.setAttribute(`data-sprite-${context}`, 'true');
+    }
+
+    private isSpriteUsedInModal(spriteUrl: string): boolean {
+        if (!this.modalOverlay) return false;
+        
+        // Check all elements in modal for this sprite URL (not just those with data-sprite-modal)
+        const allModalElements = this.modalOverlay.querySelectorAll('*');
+        for (const el of allModalElements) {
+            const style = (el as HTMLElement).style.backgroundImage;
+            if (style && style.includes(spriteUrl)) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+
+    private isSpriteStillInUse(spriteUrl: string): boolean {
+        // Check entire document for this sprite URL
+        const allElements = document.querySelectorAll('*');
+        for (const el of allElements) {
+            const style = (el as HTMLElement).style.backgroundImage;
+            if (style && style.includes(spriteUrl)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private removeFromSpriteSheetManagerCache(spriteUrl: string, forceRemove: boolean = false): void {
+        try {
+            const spritesheetManager = (document as any).highlite?.gameHooks?.SpriteSheetManager?.Instance;
+            if (!spritesheetManager) return;
+
+            // Only remove cache entries if this URL is no longer referenced anywhere OR if forced
+            if (!forceRemove) {
+                // Check if any other sprites are still using this URL
+                const stillInUse = this.activeSpriteUrls.has(spriteUrl) || this.spriteReferences.has(spriteUrl);
+                
+                if (stillInUse) {
+                    return;
+                }
+            }
+
+            // Check human NPC cache - remove ALL entries with this URL since it's being revoked
+            if (spritesheetManager._humanNPCSpritesheetInfo) {
+                const humanCache = spritesheetManager._humanNPCSpritesheetInfo;
+                const keysToRemove: number[] = [];
+                
+                for (const [key, spriteInfo] of humanCache.entries()) {
+                    if (spriteInfo && spriteInfo.SpritesheetURL === spriteUrl) {
+                        keysToRemove.push(key);
+                    }
+                }
+                
+                keysToRemove.forEach(key => {
+                    this.log(`Removing NPC ${key} from human sprite cache (URL being revoked)`);
+                    humanCache.delete(key);
+                });
+            }
+
+            // Check player cache - remove ALL entries with this URL since it's being revoked
+            if (spritesheetManager._playerSpritesheetInfo) {
+                const playerCache = spritesheetManager._playerSpritesheetInfo;
+                const keysToRemove: string[] = [];
+                
+                for (const [key, spriteInfo] of playerCache.entries()) {
+                    if (spriteInfo && spriteInfo.SpritesheetURL === spriteUrl) {
+                        keysToRemove.push(key);
+                    }
+                }
+                
+                keysToRemove.forEach(key => {
+                    this.log(`Removing player ${key} from player sprite cache (URL being revoked)`);
+                    playerCache.delete(key);
+                });
+            }
+        } catch (error) {
+            this.error(`Failed to remove sprite from SpriteSheetManager cache: ${error}`);
+        }
+    }
 
     private showLoadingState(): void {
         if (!this.itemListContainer) return;
@@ -1558,6 +1854,8 @@ export class DefinitionsPanel extends Plugin {
 
     private closeModal(): void {
         if (this.modalOverlay) {
+            // Clean up sprites used in modal before removing
+            this.cleanupModalSprites();
             this.modalOverlay.remove();
             this.modalOverlay = null;
         }
@@ -2042,7 +2340,9 @@ export class DefinitionsPanel extends Plugin {
                     if (spriteInfo) {
                         const spriteFrameIndex = 15 * creatureSpriteId;
                         const spritePos = this.calculateSpritePositionFromId(spriteFrameIndex, creatureType);
-                        spriteHtml = `<div class="npc-sprite-modal npc-sprite-${sizeClass}" data-creature-type="${creatureType}" style="background-image: url('${spriteInfo.SpritesheetURL}'); background-position: -${spritePos.x}px -${spritePos.y}px; width: ${spriteInfo.SpriteWidth}px; height: ${spriteInfo.SpriteHeight}px;"></div>`;
+                        spriteHtml = `<div class="npc-sprite-modal npc-sprite-${sizeClass}" data-creature-type="${creatureType}" style="background-image: url('${spriteInfo.SpritesheetURL}'); background-position: -${spritePos.x}px -${spritePos.y}px; width: ${spriteInfo.SpriteWidth}px; height: ${spriteInfo.SpriteHeight}px;" data-sprite-modal="true"></div>`;
+                        // Track sprite usage after DOM insertion
+                        setTimeout(() => this.trackSpriteUsage(document.querySelector(`[data-creature-type="${creatureType}"]`) as HTMLElement, spriteInfo.SpritesheetURL, 'modal'), 0);
                     } else {
                         // Fallback
                         const spriteFrameIndex = 15 * creatureSpriteId;
@@ -2062,7 +2362,9 @@ export class DefinitionsPanel extends Plugin {
 
                 if (humanSpriteInfo && humanSpriteInfo.SpritesheetURL) {
                     // Use existing sprite URL
-                    spriteHtml = `<div class="npc-sprite-modal npc-sprite-human" style="background-image: url('${humanSpriteInfo.SpritesheetURL}'); background-position: -64px 0px; background-size: auto;"></div>`;
+                    spriteHtml = `<div class="npc-sprite-modal npc-sprite-human" style="background-image: url('${humanSpriteInfo.SpritesheetURL}'); background-position: -64px 0px; background-size: auto;" data-sprite-modal="true"></div>`;
+                    // Track sprite usage after DOM insertion
+                    setTimeout(() => this.trackSpriteUsage(document.querySelector('.npc-sprite-modal.npc-sprite-human') as HTMLElement, humanSpriteInfo.SpritesheetURL, 'modal'), 0);
                 } else {
                     // Show placeholder initially
                     spriteHtml = `<div class="npc-sprite-modal npc-sprite-human" data-npc-id="${npcDef._id}" style="background-color: #f0f0f0; display: flex; align-items: center; justify-content: center; font-size: 36px;">👤</div>`;
@@ -2082,6 +2384,9 @@ export class DefinitionsPanel extends Plugin {
                                 spriteElement.style.backgroundPosition = "-64px 0px";
                                 spriteElement.style.backgroundSize = "auto";
                                 spriteElement.style.backgroundColor = "transparent";
+                                spriteElement.setAttribute('data-sprite-modal', 'true');
+                                // Track sprite usage
+                                this.trackSpriteUsage(spriteElement, spriteInfo.SpritesheetURL, 'modal');
                             }
                         }
                     }, 100); // Poll every 100ms
@@ -3938,6 +4243,9 @@ export class DefinitionsPanel extends Plugin {
         // Close any open modal
         this.closeModal();
 
+        // Clean up all sprite references
+        this.cleanupAllSprites();
+
         // Remove menu item
         this.panelManager.removeMenuItem("📦");
 
@@ -3974,5 +4282,10 @@ export class DefinitionsPanel extends Plugin {
         this.modalOverlay = null;
         this.itemToggle = null;
         this.npcToggle = null;
+
+        // Clear sprite tracking maps
+        this.spriteReferences.clear();
+        this.spriteContexts.clear();
+        this.activeSpriteUrls.clear();
     }
 } 
