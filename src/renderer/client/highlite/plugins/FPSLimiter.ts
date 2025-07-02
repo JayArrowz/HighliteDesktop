@@ -45,12 +45,17 @@ export class FPSLimiter extends Plugin {
                 const deltaTime = currentTime - this.lastFrameTime;
                 
                 if (deltaTime >= this.frameTimeThreshold) {
-                    // Enough time has passed, execute the callback
-                    this.lastFrameTime = currentTime - (deltaTime % this.frameTimeThreshold);
+                    // Enough time has passed, execute the callback immediately
+                    this.lastFrameTime = currentTime;
                     callback(currentTime);
                 } else {
-                    // Not enough time has passed, schedule for next frame
-                    window.requestAnimationFrame(callback);
+                    // Not enough time has passed, delay the callback
+                    const delay = Math.max(0, this.frameTimeThreshold - deltaTime);
+                    setTimeout(() => {
+                        const now = performance.now();
+                        this.lastFrameTime = now;
+                        callback(now);
+                    }, delay);
                 }
             });
         };
