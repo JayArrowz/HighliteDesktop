@@ -44,6 +44,25 @@ interface ClassMatch {
     missingMethods: string[];
 }
 
+interface KnownClassInfo {
+    className: string;
+    methods?: string[];
+    properties?: string[];
+    staticMethods?: string[];
+    staticProperties?: string[];
+    description?: string;
+}
+
+// Known class information to help with matching decisions
+const knownClassInfo: KnownClassInfo[] = [
+    {
+        className: "ChatManager",
+        properties: ["Instance", "_friends"],
+        staticProperties: ["Instance"],
+        description: "Manages chat functionality and friends list"
+    }
+];
+
 async function findTypeScriptFiles(dir: string): Promise<string[]> {
     const files: string[] = [];
     
@@ -574,7 +593,7 @@ function parseClientForClasses(clientCode: string): Promise<ClientClass[]> {
     });
 }
 
-function calculateMatchScore(hookUsage: GameHookUsage[string], clientClass: ClientClass): ClassMatch {
+function calculateMatchScore(hookUsage: GameHookUsage[string], clientClass: ClientClass, hookName: string): ClassMatch {
     const requiredProperties = Array.from(hookUsage.properties);
     const requiredMethods = Array.from(hookUsage.methods);
     
@@ -585,6 +604,7 @@ function calculateMatchScore(hookUsage: GameHookUsage[string], clientClass: Clie
     
     let score = 0;
     
+    // Check required properties from codebase analysis
     for (const prop of requiredProperties) {
         if (clientClass.properties.has(prop) || clientClass.staticProperties.has(prop)) {
             matchedProperties.push(prop);
@@ -594,6 +614,7 @@ function calculateMatchScore(hookUsage: GameHookUsage[string], clientClass: Clie
         }
     }
     
+    // Check required methods from codebase analysis
     for (const method of requiredMethods) {
         if (clientClass.methods.has(method) || clientClass.staticMethods.has(method)) {
             matchedMethods.push(method);
@@ -603,6 +624,67 @@ function calculateMatchScore(hookUsage: GameHookUsage[string], clientClass: Clie
         }
     }
     
+    // Check against known class information
+    const knownInfo = knownClassInfo.find(info => info.className === hookName);
+    if (knownInfo) {
+        // Check known properties
+        if (knownInfo.properties) {
+            for (const prop of knownInfo.properties) {
+                if (clientClass.properties.has(prop) || clientClass.staticProperties.has(prop)) {
+                    if (!matchedProperties.includes(prop)) {
+                        matchedProperties.push(prop);
+                    }
+                    score += 3; // Higher weight for known properties
+                } else if (!requiredProperties.includes(prop)) {
+                    missingProperties.push(prop);
+                }
+            }
+        }
+        
+        // Check known static properties
+        if (knownInfo.staticProperties) {
+            for (const prop of knownInfo.staticProperties) {
+                if (clientClass.staticProperties.has(prop)) {
+                    if (!matchedProperties.includes(prop)) {
+                        matchedProperties.push(prop);
+                    }
+                    score += 3; // Higher weight for known static properties
+                } else if (!requiredProperties.includes(prop)) {
+                    missingProperties.push(prop);
+                }
+            }
+        }
+        
+        // Check known methods
+        if (knownInfo.methods) {
+            for (const method of knownInfo.methods) {
+                if (clientClass.methods.has(method) || clientClass.staticMethods.has(method)) {
+                    if (!matchedMethods.includes(method)) {
+                        matchedMethods.push(method);
+                    }
+                    score += 2; // Higher weight for known methods
+                } else if (!requiredMethods.includes(method)) {
+                    missingMethods.push(method);
+                }
+            }
+        }
+        
+        // Check known static methods
+        if (knownInfo.staticMethods) {
+            for (const method of knownInfo.staticMethods) {
+                if (clientClass.staticMethods.has(method)) {
+                    if (!matchedMethods.includes(method)) {
+                        matchedMethods.push(method);
+                    }
+                    score += 2; // Higher weight for known static methods
+                } else if (!requiredMethods.includes(method)) {
+                    missingMethods.push(method);
+                }
+            }
+        }
+    }
+    
+    // Bonus points for common patterns
     if (requiredProperties.includes('Instance') && clientClass.hasInstance) {
         score += 5;
     }
@@ -611,6 +693,7 @@ function calculateMatchScore(hookUsage: GameHookUsage[string], clientClass: Clie
         score += 3;
     }
     
+    // Penalty for missing critical properties
     const criticalProperties = ['Instance', 'Manager', '_mainPlayer', 'MainPlayer'];
     for (const critical of criticalProperties) {
         if (requiredProperties.includes(critical) && !clientClass.properties.has(critical) && !clientClass.staticProperties.has(critical)) {
@@ -619,7 +702,7 @@ function calculateMatchScore(hookUsage: GameHookUsage[string], clientClass: Clie
     }
     
     return {
-        hookName: '',
+        hookName: hookName,
         clientClassName: clientClass.name,
         matchScore: score,
         matchedProperties,
@@ -788,6 +871,18 @@ async function analyzeGameHookDependencies() {
                 console.log(`   ⚡ Required methods: ${Array.from(hookUsage.methods).join(', ')}`);
             }
             
+            // Show known class information if available
+            const knownInfo = knownClassInfo.find(info => info.className === mappedName);
+            if (knownInfo) {
+                console.log(`   💡 Known class info available: ${knownInfo.description || 'No description'}`);
+                if (knownInfo.properties && knownInfo.properties.length > 0) {
+                    console.log(`   🔍 Known properties: ${knownInfo.properties.join(', ')}`);
+                }
+                if (knownInfo.methods && knownInfo.methods.length > 0) {
+                    console.log(`   🔍 Known methods: ${knownInfo.methods.join(', ')}`);
+                }
+            }
+            
             const existingMapping = classMappings.find(m => m.hookName === mappedName);
             if (existingMapping) {
                 console.log(`   📋 Current mapping: ${mappedName} → ${existingMapping.clientClassName}`);
@@ -806,8 +901,7 @@ async function analyzeGameHookDependencies() {
             const matches: ClassMatch[] = [];
             
             for (const clientClass of clientClasses) {
-                const match = calculateMatchScore(hookUsage, clientClass);
-                match.hookName = mappedName;
+                const match = calculateMatchScore(hookUsage, clientClass, mappedName);
                 
                 if (match.matchScore > 0) {
                     matches.push(match);
