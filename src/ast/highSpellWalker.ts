@@ -19,6 +19,7 @@ interface GameHookUsage {
     [hookName: string]: {
         properties: Set<string>;
         methods: Set<string>;
+        nestedObjectUsage: Set<string>; // For methods/properties of nested objects accessed through the hook
         fullExpressions: Set<string>;
         files: Set<string>;
         fromDirectAccess: boolean;
@@ -298,6 +299,7 @@ async function analyzeFileForHookRegistrations(filePath: string): Promise<GameHo
                         hookUsage[className] = {
                             properties: new Set(),
                             methods: new Set(),
+                            nestedObjectUsage: new Set(),
                             fullExpressions: new Set(),
                             files: new Set(),
                             fromDirectAccess: false,
@@ -325,6 +327,7 @@ async function analyzeFileForHookRegistrations(filePath: string): Promise<GameHo
                         hookUsage[className] = {
                             properties: new Set(),
                             methods: new Set(),
+                            nestedObjectUsage: new Set(),
                             fullExpressions: new Set(),
                             files: new Set(),
                             fromDirectAccess: false,
@@ -909,6 +912,7 @@ async function analyzeGameHookDependencies() {
                 allHookRegistrations[className] = {
                     properties: new Set(),
                     methods: new Set(),
+                    nestedObjectUsage: new Set(),
                     fullExpressions: new Set(),
                     files: new Set(),
                     fromDirectAccess: false,
@@ -932,6 +936,7 @@ async function analyzeGameHookDependencies() {
             usage[dep.hookName] = {
                 properties: new Set(),
                 methods: new Set(),
+                nestedObjectUsage: new Set(),
                 fullExpressions: new Set(),
                 files: new Set(),
                 fromDirectAccess: dep.isDirect,
@@ -959,19 +964,21 @@ async function analyzeGameHookDependencies() {
                 }
             }
             else if (i === 1 && dep.propertyChain[0] === 'Instance') {
-                if (prop.includes('()')) {
-                    hookUsage.methods.add(prop.replace('()', ''));
+                if (dep.isDirect) {
+                    if (prop.includes('()')) {
+                        hookUsage.methods.add(prop.replace('()', ''));
+                    } else {
+                        hookUsage.properties.add(prop);
+                    }
                 } else {
-                    hookUsage.properties.add(prop);
+                    // For indirect access beyond Instance level, track as nested object usage
+                    hookUsage.nestedObjectUsage.add(dep.fullExpression);
                 }
             }
             else {
-                // For indirect access, we might have longer property chains
-                // Add all properties/methods found
-                if (prop.includes('()')) {
-                    hookUsage.methods.add(prop.replace('()', ''));
-                } else {
-                    hookUsage.properties.add(prop);
+                // Deeper nested properties/methods - track as nested object usage
+                if (!dep.isDirect) {
+                    hookUsage.nestedObjectUsage.add(dep.fullExpression);
                 }
             }
         }
@@ -1013,6 +1020,10 @@ async function analyzeGameHookDependencies() {
             console.log(`⚡ Methods: ${Array.from(hookUsage.methods).join(', ')}`);
         }
 
+        if (hookUsage.nestedObjectUsage.size > 0) {
+            console.log(`🔗 Nested Object Usage: ${Array.from(hookUsage.nestedObjectUsage).join(', ')}`);
+        }
+
         // Show detailed access patterns
         const directAccess = allDependencies.filter(dep => dep.hookName === hookName && dep.isDirect);
         const indirectAccess = allDependencies.filter(dep => dep.hookName === hookName && !dep.isDirect);
@@ -1029,7 +1040,9 @@ async function analyzeGameHookDependencies() {
             console.log(`🔗 Indirect Access (${indirectAccess.length} occurrences):`);
             indirectAccess.forEach(dep => {
                 const fileName = path.basename(dep.file);
-                console.log(`   • Line ${dep.line}: ${dep.fullExpression} via ${dep.sourceVariable} (${fileName})`);
+                const chainDescription = dep.propertyChain.length > 1 ? 
+                    ` → ${dep.propertyChain.join('.')}` : '';
+                console.log(`   • Line ${dep.line}: ${dep.fullExpression} via ${dep.sourceVariable}${chainDescription} (${fileName})`);
             });
         }
     }
