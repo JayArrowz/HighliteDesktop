@@ -372,11 +372,12 @@ async function analyzeFileForGameHooks(filePath: string): Promise<GameHookDepend
 
         const exitScope = () => {
             const keysToRemove: string[] = [];
-            for (const [key, ref] of scopeTracker.variableReferences.entries()) {
+            // Convert Map entries to array to avoid iterator issues
+            Array.from(scopeTracker.variableReferences.entries()).forEach(([key, ref]) => {
                 if (ref.scope === scopeTracker.currentScope) {
                     keysToRemove.push(key);
                 }
-            }
+            });
             keysToRemove.forEach(key => scopeTracker.variableReferences.delete(key));
             
             scopeTracker.currentScope = 'global';
