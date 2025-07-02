@@ -11,6 +11,8 @@ interface GameHookDependency {
     fullExpression: string;
     file: string;
     line: number;
+    isDirect: boolean; // true for direct access, false for indirect via variable
+    sourceVariable?: string; // name of variable if indirect access
 }
 
 interface GameHookUsage {
@@ -51,6 +53,21 @@ interface KnownClassInfo {
     staticMethods?: string[];
     staticProperties?: string[];
     description?: string;
+}
+
+interface VariableGameHookReference {
+    variableName: string;
+    hookName: string;
+    propertyChain: string[];
+    fullGameHookExpression: string;
+    declarationLine: number;
+    scope: string; // simple scope tracking
+}
+
+interface ScopeTracker {
+    currentScope: string;
+    scopeCounter: number;
+    variableReferences: Map<string, VariableGameHookReference>;
 }
 
 // Known class information to help with matching decisions
@@ -342,7 +359,75 @@ async function analyzeFileForGameHooks(filePath: string): Promise<GameHookDepend
             true
         );
 
+        const scopeTracker: ScopeTracker = {
+            currentScope: 'global',
+            scopeCounter: 0,
+            variableReferences: new Map()
+        };
+
+        const enterScope = () => {
+            scopeTracker.scopeCounter++;
+            scopeTracker.currentScope = `scope_${scopeTracker.scopeCounter}`;
+        };
+
+        const exitScope = () => {
+            const keysToRemove: string[] = [];
+            for (const [key, ref] of scopeTracker.variableReferences.entries()) {
+                if (ref.scope === scopeTracker.currentScope) {
+                    keysToRemove.push(key);
+                }
+            }
+            keysToRemove.forEach(key => scopeTracker.variableReferences.delete(key));
+            
+            scopeTracker.currentScope = 'global';
+        };
+
         const visit = (node: ts.Node) => {
+            if (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || 
+                ts.isArrowFunction(node) || ts.isBlock(node)) {
+                enterScope();
+            }
+
+            // Check for variable declarations that assign game hook references
+            if (ts.isVariableDeclaration(node) && node.initializer) {
+                const variableName = ts.isIdentifier(node.name) ? node.name.text : null;
+                
+                if (variableName) {
+                    // Check if the initializer is a game hooks access
+                    const chain = extractPropertyChain(node.initializer);
+                    
+                    if (isGameHooksAccess(chain)) {
+                        const { hookName, properties } = getHookNameAndProperties(chain);
+                        
+                        if (hookName) {
+                            const lineNumber = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1;
+                            const fullExpression = nodeToString(node.initializer);
+                            
+                            // Store the variable reference
+                            scopeTracker.variableReferences.set(variableName, {
+                                variableName,
+                                hookName,
+                                propertyChain: properties,
+                                fullGameHookExpression: fullExpression,
+                                declarationLine: lineNumber,
+                                scope: scopeTracker.currentScope
+                            });
+
+                            // Record the direct access
+                            dependencies.push({
+                                hookName,
+                                propertyChain: properties,
+                                fullExpression,
+                                file: filePath,
+                                line: lineNumber,
+                                isDirect: true
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Check for direct game hooks access
             if (ts.isPropertyAccessExpression(node) || ts.isCallExpression(node)) {
                 const chain = extractPropertyChain(node);
 
@@ -351,18 +436,107 @@ async function analyzeFileForGameHooks(filePath: string): Promise<GameHookDepend
 
                     if (hookName) {
                         const lineNumber = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1;
-                        dependencies.push({
-                            hookName,
-                            propertyChain: properties,
-                            fullExpression: nodeToString(node),
-                            file: filePath,
-                            line: lineNumber
-                        });
+                        const fullExpression = nodeToString(node);
+                        
+                        // Only add if this isn't part of a variable declaration (already handled above)
+                        const parent = node.parent;
+                        const isPartOfVariableDeclaration = parent && ts.isVariableDeclaration(parent) && parent.initializer === node;
+                        
+                        if (!isPartOfVariableDeclaration) {
+                            dependencies.push({
+                                hookName,
+                                propertyChain: properties,
+                                fullExpression,
+                                file: filePath,
+                                line: lineNumber,
+                                isDirect: true
+                            });
+                        }
+                    }
+                }
+                
+                // Check for indirect access via tracked variables
+                else if (ts.isPropertyAccessExpression(node)) {
+                    const objectExpression = node.expression;
+                    
+                    if (ts.isIdentifier(objectExpression)) {
+                        const variableName = objectExpression.text;
+                        const variableRef = scopeTracker.variableReferences.get(variableName);
+                        
+                        if (variableRef) {
+                            const lineNumber = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1;
+                            const propertyName = node.name.text;
+                            const fullExpression = nodeToString(node);
+                            
+                            dependencies.push({
+                                hookName: variableRef.hookName,
+                                propertyChain: [...variableRef.propertyChain, propertyName],
+                                fullExpression,
+                                file: filePath,
+                                line: lineNumber,
+                                isDirect: false,
+                                sourceVariable: variableName
+                            });
+                        }
+                    }
+                }
+                
+                // Check for indirect method calls via tracked variables
+                else if (ts.isCallExpression(node)) {
+                    if (ts.isPropertyAccessExpression(node.expression)) {
+                        const objectExpression = node.expression.expression;
+                        
+                        if (ts.isIdentifier(objectExpression)) {
+                            const variableName = objectExpression.text;
+                            const variableRef = scopeTracker.variableReferences.get(variableName);
+                            
+                            if (variableRef) {
+                                const lineNumber = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1;
+                                const methodName = node.expression.name.text;
+                                const fullExpression = nodeToString(node);
+                                
+                                dependencies.push({
+                                    hookName: variableRef.hookName,
+                                    propertyChain: [...variableRef.propertyChain, `${methodName}()`],
+                                    fullExpression,
+                                    file: filePath,
+                                    line: lineNumber,
+                                    isDirect: false,
+                                    sourceVariable: variableName
+                                });
+                            }
+                        }
+                    }
+                    // Handle direct calls on variables (e.g., variableName())
+                    else if (ts.isIdentifier(node.expression)) {
+                        const variableName = node.expression.text;
+                        const variableRef = scopeTracker.variableReferences.get(variableName);
+                        
+                        if (variableRef) {
+                            const lineNumber = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1;
+                            const fullExpression = nodeToString(node);
+                            
+                            dependencies.push({
+                                hookName: variableRef.hookName,
+                                propertyChain: [...variableRef.propertyChain, '()'],
+                                fullExpression,
+                                file: filePath,
+                                line: lineNumber,
+                                isDirect: false,
+                                sourceVariable: variableName
+                            });
+                        }
                     }
                 }
             }
 
             ts.forEachChild(node, visit);
+
+            // Handle scope exit
+            if (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || 
+                ts.isArrowFunction(node) || ts.isBlock(node)) {
+                exitScope();
+            }
         };
 
         visit(sourceFile);
@@ -759,7 +933,7 @@ async function analyzeGameHookDependencies() {
                 methods: new Set(),
                 fullExpressions: new Set(),
                 files: new Set(),
-                fromDirectAccess: true,
+                fromDirectAccess: dep.isDirect,
                 fromHookRegistration: false
             };
         }
@@ -767,6 +941,11 @@ async function analyzeGameHookDependencies() {
         const hookUsage = usage[dep.hookName];
         hookUsage.files.add(path.relative(projectRoot, dep.file));
         hookUsage.fullExpressions.add(dep.fullExpression);
+        
+        // Update fromDirectAccess if we have direct access
+        if (dep.isDirect) {
+            hookUsage.fromDirectAccess = true;
+        }
 
         for (let i = 0; i < dep.propertyChain.length; i++) {
             const prop = dep.propertyChain[i];
@@ -786,7 +965,13 @@ async function analyzeGameHookDependencies() {
                 }
             }
             else {
-                break;
+                // For indirect access, we might have longer property chains
+                // Add all properties/methods found
+                if (prop.includes('()')) {
+                    hookUsage.methods.add(prop.replace('()', ''));
+                } else {
+                    hookUsage.properties.add(prop);
+                }
             }
         }
     }
@@ -825,6 +1010,26 @@ async function analyzeGameHookDependencies() {
 
         if (hookUsage.methods.size > 0) {
             console.log(`⚡ Methods: ${Array.from(hookUsage.methods).join(', ')}`);
+        }
+
+        // Show detailed access patterns
+        const directAccess = allDependencies.filter(dep => dep.hookName === hookName && dep.isDirect);
+        const indirectAccess = allDependencies.filter(dep => dep.hookName === hookName && !dep.isDirect);
+
+        if (directAccess.length > 0) {
+            console.log(`📍 Direct Access (${directAccess.length} occurrences):`);
+            directAccess.forEach(dep => {
+                const fileName = path.basename(dep.file);
+                console.log(`   • Line ${dep.line}: ${dep.fullExpression} (${fileName})`);
+            });
+        }
+
+        if (indirectAccess.length > 0) {
+            console.log(`🔗 Indirect Access (${indirectAccess.length} occurrences):`);
+            indirectAccess.forEach(dep => {
+                const fileName = path.basename(dep.file);
+                console.log(`   • Line ${dep.line}: ${dep.fullExpression} via ${dep.sourceVariable} (${fileName})`);
+            });
         }
     }
 
