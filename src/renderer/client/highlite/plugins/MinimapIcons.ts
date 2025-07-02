@@ -30,6 +30,10 @@ import gemShopIcon from "@static/icons/minimap/Gem_shop_icon.png";
 import shopIcon from "@static/icons/minimap/Shop_icon.png";
 import platelegsShopIcon from "@static/icons/minimap/Platelegs_shop_icon.png";
 import swordShopIcon from "@static/icons/minimap/Sword_shop_icon.png";
+import platebodyShopIcon from "@static/icons/minimap/Platebody_shop_icon.png";
+import craftingTableIcon from "@static/icons/minimap/Crafting_table_icon.png";
+import magicShopIcon from "@static/icons/minimap/Magic_shop_icon.png";
+import shieldShopIcon from "@static/icons/minimap/Shield_shop_icon.png";
 
 export enum CompareField {
     Name = 'name',
@@ -102,6 +106,12 @@ export class MinimapIcons extends Plugin {
         { field: CompareField.Name, compareType: CompareType.Includes, value: "gold rocks", icon: goldIcon },
         { field: CompareField.Name, compareType: CompareType.Includes, value: "palladium rocks", icon: palladiumIcon },
         { field: CompareField.Name, compareType: CompareType.Includes, value: "dead tree", icon: deadTreeIcon },
+        { field: CompareField.Description, compareType: CompareType.Includes, value: "nate's plates", icon: platebodyShopIcon },
+        { field: CompareField.Description, compareType: CompareType.Includes, value: "clydes capes", icon: shopIcon },
+        { field: CompareField.Description, compareType: CompareType.Includes, value: "I can craft items here", icon: craftingTableIcon },
+        { field: CompareField.Description, compareType: CompareType.Includes, value: "magical scroll shop", icon: magicShopIcon },
+        { field: CompareField.Description, compareType: CompareType.Includes, value: "shield shop", icon: shieldShopIcon },
+        { field: CompareField.Name, compareType: CompareType.Equals, value: "traveling merchant", icon: shopIcon },
     ];
 
     constructor() {
