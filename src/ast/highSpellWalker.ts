@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as acorn from "acorn";
 import { walk, Node } from "estree-walker-ts";
-import { obtainGameClient } from "../utils/ClientUtils";
+import { obtainGameClient } from "../utils/clientUtils";
 
 interface GameHookDependency {
     hookName: string;
