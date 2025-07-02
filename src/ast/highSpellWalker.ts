@@ -953,34 +953,45 @@ async function analyzeGameHookDependencies() {
             hookUsage.fromDirectAccess = true;
         }
 
-        for (let i = 0; i < dep.propertyChain.length; i++) {
-            const prop = dep.propertyChain[i];
+        // Only track direct class members, not nested object methods/properties
+        if (dep.isDirect) {
+            // For direct access, only track the immediate properties/methods of the hook class
+            for (let i = 0; i < dep.propertyChain.length; i++) {
+                const prop = dep.propertyChain[i];
 
-            if (i === 0) {
-                if (prop.includes('()')) {
-                    hookUsage.methods.add(prop.replace('()', ''));
-                } else {
-                    hookUsage.properties.add(prop);
-                }
-            }
-            else if (i === 1 && dep.propertyChain[0] === 'Instance') {
-                if (dep.isDirect) {
+                if (i === 0) {
+                    // First level: direct static methods/properties or Instance
                     if (prop.includes('()')) {
                         hookUsage.methods.add(prop.replace('()', ''));
                     } else {
                         hookUsage.properties.add(prop);
                     }
-                } else {
-                    // For indirect access beyond Instance level, track as nested object usage
-                    hookUsage.nestedObjectUsage.add(dep.fullExpression);
+                }
+                else if (i === 1 && dep.propertyChain[0] === 'Instance') {
+                    // Second level after Instance: direct instance properties/methods
+                    if (prop.includes('()')) {
+                        hookUsage.methods.add(prop.replace('()', ''));
+                    } else {
+                        hookUsage.properties.add(prop);
+                    }
+                }
+                // Don't track deeper levels - they belong to nested objects, not the hook class
+                else {
+                    break;
                 }
             }
-            else {
-                // Deeper nested properties/methods - track as nested object usage
-                if (!dep.isDirect) {
-                    hookUsage.nestedObjectUsage.add(dep.fullExpression);
+        } else {
+            // For indirect access, only track if it's directly calling the stored reference
+            // Don't track nested object methods/properties
+            if (dep.propertyChain.length <= 1) {
+                // Only if accessing the variable directly (no additional properties/methods)
+                const prop = dep.propertyChain[0];
+                if (prop && prop.includes('()')) {
+                    hookUsage.methods.add(prop.replace('()', ''));
                 }
             }
+            // Track all indirect usage for debugging purposes
+            hookUsage.nestedObjectUsage.add(dep.fullExpression);
         }
     }
 
