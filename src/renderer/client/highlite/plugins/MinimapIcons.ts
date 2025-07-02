@@ -371,7 +371,6 @@ export class MinimapIcons extends Plugin {
         iconContainer.className = `minimap-icon minimap-icon-${entityType}`;
         iconContainer.style.position = "absolute";
         iconContainer.style.pointerEvents = "none";
-        iconContainer.style.zIndex = "1003";
         iconContainer.style.display = "flex";
         iconContainer.style.flexDirection = "column";
         iconContainer.style.alignItems = "center";
@@ -581,7 +580,6 @@ export class MinimapIcons extends Plugin {
             
             .minimap-icon:hover {
                 transform: scale(1.2);
-                z-index: 1004 !important;
             }
             
             .minimap-icon:hover .minimap-icon-name {
