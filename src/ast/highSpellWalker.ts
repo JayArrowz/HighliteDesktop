@@ -692,15 +692,7 @@ function calculateMatchScore(hookUsage: GameHookUsage[string], clientClass: Clie
     if (requiredProperties.includes('Manager') && clientClass.hasManager) {
         score += 3;
     }
-    
-    // Penalty for missing critical properties
-    const criticalProperties = ['Instance', 'Manager', '_mainPlayer', 'MainPlayer'];
-    for (const critical of criticalProperties) {
-        if (requiredProperties.includes(critical) && !clientClass.properties.has(critical) && !clientClass.staticProperties.has(critical)) {
-            score -= 2;
-        }
-    }
-    
+        
     return {
         hookName: hookName,
         clientClassName: clientClass.name,
