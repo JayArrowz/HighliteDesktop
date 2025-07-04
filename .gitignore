@@ -2,6 +2,9 @@
 .idea
 .vscode
 
+# We use Yarn at production, so we don't want to keep package-lock.json from developers
+.package-lock.json
+
 # Logs
 logs
 *.log

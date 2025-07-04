@@ -62,6 +62,11 @@ export class Highlite {
         this.hookManager.registerClass('DP', 'ItemDefMap');
         // this.hookManager.registerClass("LF", "MainPlayer");
         this.hookManager.registerClass("eR", "GameCameraManager"); // Tip to find: contains call initializeCamera(e ,t)
+        this.hookManager.registerClass("Ck", "SpriteSheetManager"); //Tip to find: contains getter PlayerSpritesheetInfo 
+        this.hookManager.registerClass("EB", "NpcDefinitionManager");
+        this.hookManager.registerClass("IV", "SpellDefinitionManager");
+        this.hookManager.registerClass("tk", "AppearanceUtils");
+        this.hookManager.registerClass("SR", "BlobLoader");
 
 
         // Function Hook-ins
@@ -87,7 +92,8 @@ export class Highlite {
         document.highlite.gameLookups["InventoryActions"] = document.client.get("QA");
         document.highlite.gameLookups["Skills"] = document.client.get("bA");
         document.highlite.gameLookups["EquipmentTypes"] = document.client.get("oP");
-        // document.highlite.gameLookups["NpcDefs"] = document.client.get("uB");
+        document.highlite.gameLookups["EntityTypes"] = document.client.get("PF");
+        document.highlite.gameLookups["AppearanceTypes"] = document.client.get("YP");
     }
 
     async loginHooks(fnName: string, ...args: any[]) {

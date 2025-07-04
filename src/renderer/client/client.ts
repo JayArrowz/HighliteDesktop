@@ -18,6 +18,8 @@ import { ChatItemTooltip } from "./highlite/plugins/ChatItemTooltip";
 import { XPOrb } from "./highlite/plugins/XPOrb";
 import { TreasureMapHelper } from "./highlite/plugins/TreasureMapHelper";
 import { FPSLimiter } from "./highlite/plugins/FPSLimiter";
+import { DefinitionsPanel } from "./highlite/plugins/DefinitionsPanel";
+import { MinimapIcons } from "./highlite/plugins/MinimapIcons";
 
 import "@static/css/index.css"
 import "@static/css/overrides.css"
@@ -45,7 +47,9 @@ const PLUGIN_REGISTRY = [
     { class: ChatItemTooltip, path: './highlite/plugins/ChatItemTooltip' },
     { class: XPOrb, path: './highlite/plugins/XPOrb' },
     { class: TreasureMapHelper, path: './highlite/plugins/TreasureMapHelper' },
-    { class: FPSLimiter, path: './highlite/plugins/FPSLimiter' }
+    { class: FPSLimiter, path: './highlite/plugins/FPSLimiter' },
+    { class: DefinitionsPanel, path: './highlite/plugins/DefinitionsPanel'},
+    { class: MinimapIcons, path: './highlite/plugins/MinimapIcons}
 ];
 
 async function obtainGameClient() {
