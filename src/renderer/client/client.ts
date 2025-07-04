@@ -19,6 +19,7 @@ import { XPOrb } from "./highlite/plugins/XPOrb";
 import { TreasureMapHelper } from "./highlite/plugins/TreasureMapHelper";
 import { FPSLimiter } from "./highlite/plugins/FPSLimiter";
 import { DefinitionsPanel } from "./highlite/plugins/DefinitionsPanel";
+import { MinimapIcons } from "./highlite/plugins/MinimapIcons";
 
 import "../../../static/css/index.css"
 import "../../../static/css/overrides.css"
@@ -194,6 +195,7 @@ async function generatePage() {
     highlite.pluginManager.registerPlugin(ExperienceTracker);
     highlite.pluginManager.registerPlugin(WorldMap);
     highlite.pluginManager.registerPlugin(MinimapMarker);
+    highlite.pluginManager.registerPlugin(MinimapIcons);
     highlite.pluginManager.registerPlugin(DropLog);
     highlite.pluginManager.registerPlugin(ChatItemTooltip);
     highlite.pluginManager.registerPlugin(XPOrb);
