@@ -186,7 +186,12 @@ export class MinimapIcons extends Plugin {
         this.log("Player logged in, setting up minimap icons");
         setTimeout(() => {
             this.setMinimapContainer();
-        }, 1000);
+            if (this.settings.enable.value && this.minimapContainer) {
+                this.cleanupAllIcons();
+                this.updateNPCIcons();
+                this.updateObjectIcons();
+            }
+        }, 2000);
     }
 
     SocketManager_handleLoggedOut(): void {
