@@ -184,14 +184,50 @@ export class MinimapIcons extends Plugin {
 
     SocketManager_loggedIn(): void {
         this.log("Player logged in, setting up minimap icons");
-        setTimeout(() => {
+        this.waitForGameReady();
+    }
+
+    private waitForGameReady(attempt: number = 1, maxAttempts: number = 30): void {
+        const isGameReady = this.checkGameReadiness();
+        
+        if (isGameReady) {
+            this.log("Game is ready, initializing minimap icons");
             this.setMinimapContainer();
             if (this.settings.enable.value && this.minimapContainer) {
                 this.cleanupAllIcons();
                 this.updateNPCIcons();
                 this.updateObjectIcons();
             }
-        }, 2000);
+            return;
+        }
+
+        if (attempt >= maxAttempts) {
+            this.log("Max attempts reached, game may not be fully loaded");
+            return;
+        }
+
+        // Exponential backoff: 100ms, 200ms, 400ms, 800ms, then 1000ms max
+        const delay = Math.min(100 * Math.pow(2, attempt - 1), 1000);
+        
+        setTimeout(() => {
+            this.waitForGameReady(attempt + 1, maxAttempts);
+        }, delay);
+    }
+
+    private checkGameReadiness(): boolean {
+        // Check if minimap container exists
+        const minimapContainer = document.getElementById("hs-minimap-container");
+        if (!minimapContainer) {
+            return false;
+        }
+
+        // Check if game entity managers are loaded
+        const entityManager = (document as any).highlite?.gameHooks?.EntityManager?.Instance;
+        const worldEntityManager = (document as any).highlite?.gameHooks?.WorldEntityManager?.Instance;
+        const minimapController = (document as any).highlite?.gameHooks?.HR?.Manager
+            ?.getController()?.MinimapQuadrantController?.MinimapController?._minimap;
+
+        return !!(entityManager && worldEntityManager && minimapController);
     }
 
     SocketManager_handleLoggedOut(): void {
