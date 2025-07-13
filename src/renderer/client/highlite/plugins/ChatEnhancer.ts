@@ -330,8 +330,14 @@ export class ChatEnhancer extends Plugin {
         const boundedPubHeight = Math.min(Math.max(pubHeight, this.CONFIG.MIN_H), this.CONFIG.MAX_H);
         const boundedPmHeight = Math.min(Math.max(pmHeight, this.CONFIG.MIN_H), this.CONFIG.MAX_H);
 
-        pub.style.cssText += `height:${boundedPubHeight}px;max-height:none;overflow-y:auto;width:100%;`;
-        pm.style.cssText += `height:${boundedPmHeight}px;max-height:none;overflow-y:auto;width:100%;`;
+        pub.style.setProperty('height', `${boundedPubHeight}px`);
+        pub.style.setProperty('max-height', 'none');
+        pub.style.setProperty('overflow-y', 'auto');
+        pub.style.setProperty('width', '100%');
+        pm.style.setProperty('height', `${boundedPmHeight}px`);
+        pm.style.setProperty('max-height', 'none');
+        pm.style.setProperty('overflow-y', 'auto');
+        pm.style.setProperty('width', '100%');
         menu.style.setProperty('max-height', 'none', 'important');
         menu.style.setProperty('height', `${boundedPubHeight + input.offsetHeight + 10}px`, 'important');
 
