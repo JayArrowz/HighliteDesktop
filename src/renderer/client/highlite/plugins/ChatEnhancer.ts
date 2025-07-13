@@ -45,12 +45,12 @@ export class ChatEnhancer extends Plugin {
     constructor() {
         super();
 
-        this.settings.enabled = {
+        this.settings.enable = {
             text: 'Enable Chat Enhancer',
             type: SettingsTypes.checkbox,
             value: true,
             callback: () => {
-                if (this.settings.enabled.value) {
+                if (this.settings.enable.value) {
                     this.initializePlugin();
                 } else {
                     this.disablePlugin();
@@ -64,7 +64,7 @@ export class ChatEnhancer extends Plugin {
             value: true,
             callback: () => {
                 if (this.settings.expandChat.value) {
-                    this.expandChat();
+                    this.applyChatDimensions();
                 } else {
                     this.resetChatSize();
                 }
@@ -75,21 +75,29 @@ export class ChatEnhancer extends Plugin {
             text: 'Collapsible Messages',
             type: SettingsTypes.checkbox,
             value: true,
-            callback: () => {},
+            callback: () => {
+                const pub = document.querySelector('#hs-public-message-list__container') as HTMLElement;
+                const pm = document.querySelector('#hs-private-message-list') as HTMLElement;
+                [pub, pm].forEach(container => {
+                    if (container) {
+                        this.applyToMessageContainer(container);
+                    }
+                });
+            },
         };
 
         this.settings.colorOverrides = {
             text: 'Color Overrides',
             type: SettingsTypes.checkbox,
             value: true,
-            callback: () => {},
+            callback: () => this.applyStyles(),
         };
 
         this.settings.enableFilters = {
             text: 'Enable Message Filters',
             type: SettingsTypes.checkbox,
             value: true,
-            callback: () => {},
+            callback: () => this.applyFilters(),
         };
 
         this.settings.enableResizers = {
@@ -99,6 +107,10 @@ export class ChatEnhancer extends Plugin {
             callback: () => {
                 if (this.settings.enableResizers.value) {
                     this.setupResizers();
+                } else {
+                    // Note: Disabling resizers requires re-initialization of the plugin
+                    // For now, resizers remain active until plugin restart
+                    this.log('Resizer disable will take effect on next plugin restart');
                 }
             },
         };
@@ -121,6 +133,76 @@ export class ChatEnhancer extends Plugin {
             text: 'Local Message Color',
             type: SettingsTypes.color,
             value: '#f0e68c',
+            callback: () => this.applyStyles(),
+        };
+
+        this.settings.chatWidth = {
+            text: 'Chat Width',
+            type: SettingsTypes.range,
+            value: this.CONFIG.WIDTH_PX,
+            callback: () => this.applyChatDimensions(),
+        };
+
+        this.settings.publicChatHeight = {
+            text: 'Public Chat Height',
+            type: SettingsTypes.range,
+            value: this.CONFIG.PUB_LINES * 20,
+            callback: () => this.applyChatDimensions(),
+        };
+
+        this.settings.privateChatHeight = {
+            text: 'Private Chat Height',
+            type: SettingsTypes.range,
+            value: this.CONFIG.PM_LINES * 20,
+            callback: () => this.applyChatDimensions(),
+        };
+
+        this.settings.showChatFilter = {
+            text: 'Show Chat Messages',
+            type: SettingsTypes.checkbox,
+            value: true,
+            callback: () => this.applyFilters(),
+        };
+
+        this.settings.showPrivateFilter = {
+            text: 'Show Private Messages',
+            type: SettingsTypes.checkbox,
+            value: true,
+            callback: () => this.applyFilters(),
+        };
+
+        this.settings.showGlobalFilter = {
+            text: 'Show Global Messages',
+            type: SettingsTypes.checkbox,
+            value: true,
+            callback: () => this.applyFilters(),
+        };
+
+        this.settings.showLocalFilter = {
+            text: 'Show Local Messages',
+            type: SettingsTypes.checkbox,
+            value: true,
+            callback: () => this.applyFilters(),
+        };
+
+        this.settings.showStatusFilter = {
+            text: 'Show Status Messages',
+            type: SettingsTypes.checkbox,
+            value: true,
+            callback: () => this.applyFilters(),
+        };
+
+        this.settings.opacityEnabled = {
+            text: 'Enable Chat Opacity',
+            type: SettingsTypes.checkbox,
+            value: false,
+            callback: () => this.applyStyles(),
+        };
+
+        this.settings.opacityValue = {
+            text: 'Chat Opacity',
+            type: SettingsTypes.range,
+            value: this.CONFIG.DEFAULT_OPACITY * 100,
             callback: () => this.applyStyles(),
         };
     }
@@ -152,22 +234,26 @@ export class ChatEnhancer extends Plugin {
     }
 
     GameLoop_draw(): void {
-        if (!this.settings.enabled?.value || !this.isInitialized) return;
+        if (!this.settings.enable?.value || !this.isInitialized) return;
         this.applyStyles();
         this.watchForNewMessages();
     }
 
     private initializePlugin(): void {
-        if (!this.settings.enabled?.value) return;
+        if (!this.settings.enable?.value) return;
 
         this.log('Initializing ChatEnhancer plugin');
         this.isInitialized = true;
 
+        this.active.opacityEnabled = this.settings.opacityEnabled?.value as boolean;
+        this.active.opacityValue = ((this.settings.opacityValue.value as number) || 60) / 100;
+
         this.applyStyles();
+        this.applyFilters();
         this.setupStyleObserver();
         
         if (this.settings.expandChat?.value) {
-            this.expandChat();
+            this.applyChatDimensions();
         }
         
         this.watchForNewMessages();
@@ -215,12 +301,84 @@ export class ChatEnhancer extends Plugin {
 
         const container = document.getElementById('hs-chat-menu-section-container');
         if (container) {
-            if (this.active.opacityEnabled) {
-                container.style.setProperty('background-color', `rgba(0,0,0,${this.active.opacityValue})`, 'important');
+            if (this.settings.opacityEnabled?.value) {
+                const opacity = (this.settings.opacityValue.value as number) / 100;
+                container.style.setProperty('background-color', `rgba(0,0,0,${opacity})`, 'important');
             } else {
                 container.style.removeProperty('background-color');
             }
         }
+    }
+
+    private applyChatDimensions(): void {
+        if (!this.settings.expandChat?.value) return;
+
+        const pub = document.querySelector('#hs-public-message-list__container') as HTMLElement;
+        const pm = document.querySelector('#hs-private-message-list') as HTMLElement;
+        const menu = document.querySelector('#hs-chat-menu') as HTMLElement;
+        const input = document.querySelector('#hs-chat-input-menu') as HTMLElement;
+
+        if (!pub || !pm || !menu || !input) return;
+
+        const chatWidth = this.settings.chatWidth.value as number;
+        const pubHeight = this.settings.publicChatHeight.value as number;
+        const pmHeight = this.settings.privateChatHeight.value as number;
+
+        const boundedWidth = Math.min(Math.max(chatWidth, this.CONFIG.MIN_W), this.CONFIG.MAX_W);
+        menu.style.width = boundedWidth + 'px';
+
+        const boundedPubHeight = Math.min(Math.max(pubHeight, this.CONFIG.MIN_H), this.CONFIG.MAX_H);
+        const boundedPmHeight = Math.min(Math.max(pmHeight, this.CONFIG.MIN_H), this.CONFIG.MAX_H);
+
+        pub.style.cssText += `height:${boundedPubHeight}px;max-height:none;overflow-y:auto;width:100%;`;
+        pm.style.cssText += `height:${boundedPmHeight}px;max-height:none;overflow-y:auto;width:100%;`;
+        menu.style.setProperty('max-height', 'none', 'important');
+        menu.style.setProperty('height', `${boundedPubHeight + input.offsetHeight + 10}px`, 'important');
+
+        const chatMenu = document.getElementById('hs-chat-input-menu');
+        const chatInput = document.getElementById('hs-chat-input') as HTMLElement;
+        if (chatMenu && chatInput) {
+            const gearBtn = chatMenu.querySelector('.hs-chat-input-menu__chat-settings-button') as HTMLElement;
+            const gearW = gearBtn?.offsetWidth || 24;
+            const nameW = (chatInput.previousElementSibling as HTMLElement)?.offsetWidth || 0;
+            const slack = gearW + 16;
+            const room = Math.min(boundedWidth - nameW - slack, 1125);
+            chatInput.style.setProperty('max-width', room + 'px', 'important');
+        }
+    }
+
+    private applyFilters(): void {
+        if (!this.settings.enableFilters?.value) return;
+
+        this.active.chat = this.settings.showChatFilter.value as boolean;
+        this.active.private = this.settings.showPrivateFilter.value as boolean;
+        this.active.global = this.settings.showGlobalFilter.value as boolean;
+        this.active.local = this.settings.showLocalFilter.value as boolean;
+        this.active.status = this.settings.showStatusFilter.value as boolean;
+
+        const sections = [
+            { selector: '#hs-public-message-list__container', show: this.active.chat },
+            { selector: '#hs-private-message-list', show: this.active.private }
+        ];
+
+        sections.forEach(({ selector, show }) => {
+            const element = document.querySelector(selector) as HTMLElement;
+            if (element) {
+                element.style.display = show ? '' : 'none';
+                if (show) {
+                    element.scrollTo(0, 1e9);
+                }
+            }
+        });
+        
+        const pub = document.querySelector('#hs-public-message-list__container') as HTMLElement;
+        const pm = document.querySelector('#hs-private-message-list') as HTMLElement;
+
+        [pub, pm].forEach(container => {
+            if (container) {
+                this.applyToMessageContainer(container);
+            }
+        });
     }
 
     private setupStyleObserver(): void {
@@ -368,12 +526,16 @@ export class ChatEnhancer extends Plugin {
                 document.highlite.managers.UIManager.bindOnClickBlockHsMask(opacityToggleButton, () => {
                     this.active.opacityEnabled = !this.active.opacityEnabled;
                     this.prevOpacityEnabled = this.active.opacityEnabled;
+                    this.settings.opacityEnabled.value = this.active.opacityEnabled;
                     updateOpacityUI();
+                    document.highlite.managers.SettingsManager.updatePluginSettingsUI(this);
                 });
 
                 this.trackListener(opacitySlider, 'input', () => {
                     this.active.opacityValue = parseFloat(opacitySlider.value);
+                    this.settings.opacityValue.value = this.active.opacityValue * 100;
                     this.applyStyles();
+                    document.highlite.managers.SettingsManager.updatePluginSettingsUI(this);
                 });
 
                 opacityControlContainer.append(opacityToggleButton, opacitySlider);
@@ -393,6 +555,14 @@ export class ChatEnhancer extends Plugin {
                     const key = cfg.key as keyof typeof this.active;
                     (this.active as any)[key] = !(this.active as any)[key];
                     button.style.outline = (this.active as any)[key] ? '2px solid deepskyblue' : 'none';
+
+                    if (key === 'chat') this.settings.showChatFilter.value = this.active.chat;
+                    if (key === 'private') this.settings.showPrivateFilter.value = this.active.private;
+                    if (key === 'global') this.settings.showGlobalFilter.value = this.active.global;
+                    if (key === 'local') this.settings.showLocalFilter.value = this.active.local;
+                    if (key === 'status') this.settings.showStatusFilter.value = this.active.status;
+                    
+                    document.highlite.managers.SettingsManager.updatePluginSettingsUI(this);
 
                     const sections = cfg.sections || (cfg.section ? [cfg.section] : []);
                     if (sections.length) {
@@ -424,7 +594,9 @@ export class ChatEnhancer extends Plugin {
                             this.prevOpacityEnabled = this.active.opacityEnabled;
                             this.active.opacityEnabled = false;
                         }
+                        this.settings.opacityEnabled.value = this.active.opacityEnabled;
                         updateOpacityUI();
+                        document.highlite.managers.SettingsManager.updatePluginSettingsUI(this);
                     }
                 });
 
@@ -484,10 +656,14 @@ export class ChatEnhancer extends Plugin {
         this.makeVerticalGrip(pub, (height: number) => {
             pub.style.height = height + 'px';
             menu.style.height = (height + input.offsetHeight + 10) + 'px';
+            this.settings.publicChatHeight.value = height;
+            document.highlite.managers.SettingsManager.updatePluginSettingsUI(this);
         }, blocker);
 
         this.makeVerticalGrip(pm, (height: number) => {
             pm.style.height = height + 'px';
+            this.settings.privateChatHeight.value = height;
+            document.highlite.managers.SettingsManager.updatePluginSettingsUI(this);
         }, blocker);
 
         menu.style.position = 'relative';
@@ -534,12 +710,14 @@ export class ChatEnhancer extends Plugin {
             e.stopPropagation();
         });
 
-        this.trackListener(document, 'mousemove', (e) => {
+                this.trackListener(document, 'mousemove', (e) => {
             if (!resizingWidth) return;
             const mouseEvent = e as MouseEvent;
             const newWidth = Math.min(Math.max(startWidth + (mouseEvent.clientX - startX), this.CONFIG.MIN_W), this.CONFIG.MAX_W);
             menu.style.width = newWidth + 'px';
             adjustInputWidth();
+            this.settings.chatWidth.value = newWidth;
+            document.highlite.managers.SettingsManager.updatePluginSettingsUI(this);
         });
 
         this.trackListener(document, 'mouseup', () => {
