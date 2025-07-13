@@ -24,6 +24,7 @@ import { CurrentStatus } from "./highlite/plugins/CurrentStatus";
 import { MinimapIcons } from './highlite/plugins/MinimapIcons';
 import { EmojiChat } from './highlite/plugins/EmojiChat';
 import { setupWorldSelectorObserver } from './helpers/worldSelectHelper';
+import { ChatEnhancer } from './highlite/plugins/ChatEnhancer';
 
 import '@static/css/index.css';
 import '@static/css/overrides.css';
@@ -63,6 +64,7 @@ const PLUGIN_REGISTRY = [
     { class: CurrentStatus, path: './highlite/plugins/CurrentStatus' },
     { class: EmojiChat, path: './highlite/plugins/EmojiChat' },
     { class: BankSearch, path: './highlite/plugins/BankSearch' },
+    { class: ChatEnhancer, path: './highlite/plugins/ChatEnhancer' },
 ];
 
 async function obtainGameClient() {
