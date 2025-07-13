@@ -20,8 +20,6 @@ export class PacketQueue extends Plugin {
             text: "Packet Interval (ms)",
             type: SettingsTypes.range,
             value: 600,
-            min: 100,
-            max: 1200,
             callback: () => {
                 this.updateInterval();
             }
