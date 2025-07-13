@@ -387,29 +387,6 @@ export class ChatEnhancer extends Plugin {
         }, document.body, { childList: true, subtree: true });
     }
 
-    private expandChat(): void {
-        const pub = document.querySelector('#hs-public-message-list__container') as HTMLElement;
-        const pm = document.querySelector('#hs-private-message-list') as HTMLElement;
-        const menu = document.querySelector('#hs-chat-menu') as HTMLElement;
-        const input = document.querySelector('#hs-chat-input-menu') as HTMLElement;
-        const sample = document.querySelector('.hs-chat-message-container') as HTMLElement;
-
-        if (!pub || !pm || !menu || !input) return;
-
-        const lineH = sample?.offsetHeight || 20;
-        const pubH = lineH * this.CONFIG.PUB_LINES;
-        const pmH = lineH * this.CONFIG.PM_LINES;
-
-        menu.style.width = this.CONFIG.WIDTH_PX + 'px';
-        pub.style.cssText += `height:${pubH}px;max-height:none;overflow-y:auto;width:100%;`;
-        pm.style.cssText += `height:${pmH}px;max-height:none;overflow-y:auto;width:100%;`;
-        menu.style.setProperty('max-height', 'none', 'important');
-        menu.style.setProperty('height', `${pubH + input.offsetHeight + 10}px`, 'important');
-
-        this.applyToMessageContainer(pub);
-        this.applyToMessageContainer(pm);
-    }
-
     private resetChatSize(): void {
         const pub = document.querySelector('#hs-public-message-list__container') as HTMLElement;
         const pm = document.querySelector('#hs-private-message-list') as HTMLElement;
