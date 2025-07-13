@@ -8,8 +8,9 @@ export class ChatEnhancer extends Plugin {
     private observers: MutationObserver[] = [];
     private listeners: { el: EventTarget; type: string; handler: EventListener; opts?: any }[] = [];
     private injectedEls: HTMLElement[] = [];
-    private isInitialized = false;
     private messageWatchersSetup = false;
+    private processedMessages = new Set<HTMLElement>();
+    private messageCheckInterval: number | null = null;
 
     private readonly CONFIG = {
         PUB_LINES: 12,
@@ -77,13 +78,7 @@ export class ChatEnhancer extends Plugin {
             type: SettingsTypes.checkbox,
             value: true,
             callback: () => {
-                const pub = document.querySelector('#hs-public-message-list__container') as HTMLElement;
-                const pm = document.querySelector('#hs-private-message-list') as HTMLElement;
-                [pub, pm].forEach(container => {
-                    if (container) {
-                        this.applyToMessageContainer(container);
-                    }
-                });
+                this.scanAllMessages();
             },
         };
 
@@ -109,8 +104,6 @@ export class ChatEnhancer extends Plugin {
                 if (this.settings.enableResizers.value) {
                     this.setupResizers();
                 } else {
-                    // Note: Disabling resizers requires re-initialization of the plugin
-                    // For now, resizers remain active until plugin restart
                     this.log('Resizer disable will take effect on next plugin restart');
                 }
             },
@@ -372,14 +365,7 @@ export class ChatEnhancer extends Plugin {
             }
         });
         
-        const pub = document.querySelector('#hs-public-message-list__container') as HTMLElement;
-        const pm = document.querySelector('#hs-private-message-list') as HTMLElement;
-
-        [pub, pm].forEach(container => {
-            if (container) {
-                this.applyToMessageContainer(container);
-            }
-        });
+        this.scanAllMessages();
     }
 
     private setupStyleObserver(): void {
@@ -417,42 +403,7 @@ export class ChatEnhancer extends Plugin {
         }
     }
 
-    private applyToMessageContainer(container: HTMLElement): void {
-        if (!container) return;
 
-        container.querySelectorAll('.hs-chat-message-container').forEach((msg) => {
-            const msgEl = msg as HTMLElement;
-            if (!msgEl.dataset.toggleInjected && this.settings.collapsibleMessages?.value) {
-                msgEl.dataset.toggleInjected = 'true';
-                const span = document.createElement('span');
-                span.textContent = '[–]';
-                span.style.cssText = 'margin-right:6px;cursor:pointer;color:gray;font-size:12px';
-                
-                document.highlite.managers.UIManager.bindOnClickBlockHsMask(span, () => {
-                    const hidden = msgEl.style.display === 'none';
-                    msgEl.style.display = hidden ? '' : 'none';
-                    span.textContent = hidden ? '[–]' : '[+]';
-                });
-
-                const textContainer = msgEl.querySelector('.hs-chat-menu__message-text-container');
-                if (textContainer) {
-                    span.setAttribute('data-chat-enhancer-injected', 'true');
-                    textContainer.prepend(span);
-                    this.trackInjected(span);
-                }
-            }
-
-            if (this.settings.enableFilters?.value) {
-                this.FILTERS.forEach(filter => {
-                    if (!filter.section && filter.key !== 'opacity' && !this.active[filter.key as keyof typeof this.active]) {
-                        if (filter.className && msgEl.querySelector(`.${filter.className}`)) {
-                            msgEl.style.display = 'none';
-                        }
-                    }
-                });
-            }
-        });
-    }
 
     private setupSettingsMenuObserver(): void {
         this.trackObserver((records) => {
@@ -607,6 +558,8 @@ export class ChatEnhancer extends Plugin {
         if (this.messageWatchersSetup) return;
         this.messageWatchersSetup = true;
 
+        this.scanAllMessages();
+
         const watchPairs = [
             ['#hs-public-message-list', '#hs-public-message-list__container'],
             ['#hs-private-message-list', '#hs-private-message-list']
@@ -616,18 +569,91 @@ export class ChatEnhancer extends Plugin {
             const list = document.querySelector(listSel);
             const wrap = document.querySelector(wrapSel) as HTMLElement;
             if (list && wrap) {
-                this.applyToMessageContainer(wrap);
-                
                 this.trackObserver((records) => {
                     records.forEach(record => {
                         if (record.addedNodes.length) {
-                            this.applyToMessageContainer(wrap);
+                            setTimeout(() => this.scanAllMessages(), 10);
                         }
                         if (record.removedNodes.length) {
                             this.cleanupRemovedMessages(record.removedNodes);
                         }
                     });
-                }, list, { childList: true });
+                }, list, { childList: true, subtree: true });
+            }
+        });
+
+        this.messageCheckInterval = window.setInterval(() => {
+            this.scanAllMessages();
+        }, 2000);
+    }
+
+    private scanAllMessages(): void {
+        const containers = [
+            document.querySelector('#hs-public-message-list__container'),
+            document.querySelector('#hs-private-message-list')
+        ];
+
+        containers.forEach(container => {
+            if (container) {
+                this.processNewMessages(container as HTMLElement);
+            }
+        });
+    }
+
+    private processNewMessages(container: HTMLElement): void {
+        if (!container) return;
+
+        const messages = container.querySelectorAll('.hs-chat-message-container');
+        let foundNewMessages = false;
+
+        messages.forEach((msg) => {
+            const msgEl = msg as HTMLElement;
+            
+            if (this.processedMessages.has(msgEl)) return;
+            
+            foundNewMessages = true;
+            this.processedMessages.add(msgEl);
+
+            if (!msgEl.dataset.toggleInjected && this.settings.collapsibleMessages?.value) {
+                msgEl.dataset.toggleInjected = 'true';
+                const span = document.createElement('span');
+                span.textContent = '[–]';
+                span.style.cssText = 'margin-right:6px;cursor:pointer;color:gray;font-size:12px';
+                
+                document.highlite.managers.UIManager.bindOnClickBlockHsMask(span, () => {
+                    const hidden = msgEl.style.display === 'none';
+                    msgEl.style.display = hidden ? '' : 'none';
+                    span.textContent = hidden ? '[–]' : '[+]';
+                });
+
+                const textContainer = msgEl.querySelector('.hs-chat-menu__message-text-container');
+                if (textContainer) {
+                    span.setAttribute('data-chat-enhancer-injected', 'true');
+                    textContainer.prepend(span);
+                    this.trackInjected(span);
+                }
+            }
+
+            if (this.settings.enableFilters?.value) {
+                this.FILTERS.forEach(filter => {
+                    if (!filter.section && filter.key !== 'opacity' && !this.active[filter.key as keyof typeof this.active]) {
+                        if (filter.className && msgEl.querySelector(`.${filter.className}`)) {
+                            msgEl.style.display = 'none';
+                        }
+                    }
+                });
+            }
+        });
+
+        if (foundNewMessages) {
+            this.cleanupProcessedMessages();
+        }
+    }
+
+    private cleanupProcessedMessages(): void {
+        this.processedMessages.forEach(msgEl => {
+            if (!document.contains(msgEl)) {
+                this.processedMessages.delete(msgEl);
             }
         });
     }
@@ -807,11 +833,16 @@ export class ChatEnhancer extends Plugin {
 
         this.resetChatSize();
         
-        // Clear any pending timeouts
         if (this.styleApplyTimeout) {
             window.clearTimeout(this.styleApplyTimeout);
             this.styleApplyTimeout = null;
         }
+        if (this.messageCheckInterval) {
+            window.clearInterval(this.messageCheckInterval);
+            this.messageCheckInterval = null;
+        }
+
+        this.processedMessages.clear();
 
         this.isInitialized = false;
         this.messageWatchersSetup = false;
