@@ -20,6 +20,10 @@ export class PacketQueue extends Plugin {
             text: "Packet Interval (ms)",
             type: SettingsTypes.range,
             value: 600,
+            validation: (value: string | number | boolean) => {
+                const numValue = value as number;
+                return numValue >= 100 && numValue <= 1000;
+            },
             callback: () => {
                 this.updateInterval();
             }
