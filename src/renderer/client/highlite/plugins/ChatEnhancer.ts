@@ -9,6 +9,7 @@ export class ChatEnhancer extends Plugin {
     private listeners: { el: EventTarget; type: string; handler: EventListener; opts?: any }[] = [];
     private injectedEls: HTMLElement[] = [];
     private isInitialized = false;
+    private messageWatchersSetup = false;
 
     private readonly CONFIG = {
         PUB_LINES: 12,
@@ -233,12 +234,6 @@ export class ChatEnhancer extends Plugin {
         this.cleanup();
     }
 
-    GameLoop_draw(): void {
-        if (!this.settings.enable?.value || !this.isInitialized) return;
-        this.applyStyles();
-        this.watchForNewMessages();
-    }
-
     private initializePlugin(): void {
         if (!this.settings.enable?.value) return;
 
@@ -256,7 +251,7 @@ export class ChatEnhancer extends Plugin {
             this.applyChatDimensions();
         }
         
-        this.watchForNewMessages();
+        this.setupMessageWatching();
         this.setupSettingsMenuObserver();
         
         if (this.settings.enableResizers?.value) {
@@ -382,9 +377,22 @@ export class ChatEnhancer extends Plugin {
     }
 
     private setupStyleObserver(): void {
-        this.trackObserver(() => {
+        const chatContainer = document.getElementById('hs-chat-menu-section-container');
+        if (chatContainer) {
+            this.trackObserver(() => {
+                this.throttledApplyStyles();
+            }, chatContainer, { childList: true, subtree: true });
+        }
+    }
+
+    private styleApplyTimeout: number | null = null;
+    private throttledApplyStyles(): void {
+        if (this.styleApplyTimeout) return;
+        
+        this.styleApplyTimeout = window.setTimeout(() => {
             this.applyStyles();
-        }, document.body, { childList: true, subtree: true });
+            this.styleApplyTimeout = null;
+        }, 100);
     }
 
     private resetChatSize(): void {
@@ -422,6 +430,7 @@ export class ChatEnhancer extends Plugin {
 
                 const textContainer = msgEl.querySelector('.hs-chat-menu__message-text-container');
                 if (textContainer) {
+                    span.setAttribute('data-chat-enhancer-injected', 'true');
                     textContainer.prepend(span);
                     this.trackInjected(span);
                 }
@@ -588,7 +597,10 @@ export class ChatEnhancer extends Plugin {
         updateOpacityUI();
     }
 
-    private watchForNewMessages(): void {
+    private setupMessageWatching(): void {
+        if (this.messageWatchersSetup) return;
+        this.messageWatchersSetup = true;
+
         const watchPairs = [
             ['#hs-public-message-list', '#hs-public-message-list__container'],
             ['#hs-private-message-list', '#hs-private-message-list']
@@ -598,13 +610,32 @@ export class ChatEnhancer extends Plugin {
             const list = document.querySelector(listSel);
             const wrap = document.querySelector(wrapSel) as HTMLElement;
             if (list && wrap) {
+                this.applyToMessageContainer(wrap);
+                
                 this.trackObserver((records) => {
                     records.forEach(record => {
                         if (record.addedNodes.length) {
                             this.applyToMessageContainer(wrap);
                         }
+                        if (record.removedNodes.length) {
+                            this.cleanupRemovedMessages(record.removedNodes);
+                        }
                     });
                 }, list, { childList: true });
+            }
+        });
+    }
+
+    private cleanupRemovedMessages(removedNodes: NodeList): void {
+        removedNodes.forEach(node => {
+            if (node instanceof HTMLElement) {
+                const injectedElements = node.querySelectorAll('[data-chat-enhancer-injected]');
+                injectedElements.forEach(el => {
+                    const index = this.injectedEls.indexOf(el as HTMLElement);
+                    if (index > -1) {
+                        this.injectedEls.splice(index, 1);
+                    }
+                });
             }
         });
     }
@@ -770,7 +801,14 @@ export class ChatEnhancer extends Plugin {
 
         this.resetChatSize();
         
+        // Clear any pending timeouts
+        if (this.styleApplyTimeout) {
+            window.clearTimeout(this.styleApplyTimeout);
+            this.styleApplyTimeout = null;
+        }
+
         this.isInitialized = false;
+        this.messageWatchersSetup = false;
         this.log('ChatEnhancer cleanup complete');
     }
 } 
