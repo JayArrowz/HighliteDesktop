@@ -8,6 +8,7 @@ export class ChatEnhancer extends Plugin {
     private observers: MutationObserver[] = [];
     private listeners: { el: EventTarget; type: string; handler: EventListener; opts?: any }[] = [];
     private injectedEls: HTMLElement[] = [];
+    private isInitialized = false;
     private messageWatchersSetup = false;
     private processedMessages = new Set<HTMLElement>();
     private messageCheckInterval: number | null = null;
@@ -254,8 +255,66 @@ export class ChatEnhancer extends Plugin {
 
     private disablePlugin(): void {
         this.log('Disabling ChatEnhancer plugin');
+        this.removeAllToggles();
+        this.removeSettingsMenuInjections();
+        this.resetAllStyles();
         this.cleanup();
         this.isInitialized = false;
+    }
+
+    private removeAllToggles(): void {
+        const containers = [
+            document.querySelector('#hs-public-message-list__container'),
+            document.querySelector('#hs-private-message-list')
+        ];
+
+        containers.forEach(container => {
+            if (container) {
+                const messages = container.querySelectorAll('.hs-chat-message-container');
+                messages.forEach((msg) => {
+                    const msgEl = msg as HTMLElement;
+                    const toggleBtn = msgEl.querySelector('[data-chat-enhancer-injected="true"]');
+                    if (toggleBtn) {
+                        toggleBtn.remove();
+                    }
+                    
+                    delete msgEl.dataset.toggleInjected;
+                    msgEl.style.display = '';
+                });
+            }
+        });
+    }
+
+    private removeSettingsMenuInjections(): void {
+        const menus = document.querySelectorAll('[data-filters-injected="true"]');
+        menus.forEach(menu => {
+            const menuEl = menu as HTMLElement;
+            delete menuEl.dataset.filtersInjected;
+            menuEl.style.position = '';
+            menuEl.style.overflow = '';
+            
+            const contentContainer = menuEl.querySelector('#hs-chat-settings-menu__content-container') as HTMLElement;
+            if (contentContainer) {
+                contentContainer.style.removeProperty('overflow');
+            }
+        });
+    }
+
+    private resetAllStyles(): void {
+        document.querySelectorAll('.hs-text--white').forEach((el) => {
+            (el as HTMLElement).style.removeProperty('color');
+        });
+        document.querySelectorAll('.hs-text--orange').forEach((el) => {
+            (el as HTMLElement).style.removeProperty('color');
+        });
+        document.querySelectorAll('.hs-text--yellow').forEach((el) => {
+            (el as HTMLElement).style.removeProperty('color');
+        });
+
+        const container = document.getElementById('hs-chat-menu-section-container');
+        if (container) {
+            container.style.removeProperty('background-color');
+        }
     }
 
     private trackObserver(fn: MutationCallback, target: Node, opts: MutationObserverInit): MutationObserver {
@@ -418,7 +477,7 @@ export class ChatEnhancer extends Plugin {
     }
 
     private injectIntoSettingsMenu(menu: HTMLElement): void {
-        if (menu.dataset.filtersInjected || !this.settings.enableFilters?.value) return;
+        if (menu.dataset.filtersInjected || !this.settings.enableFilters?.value || !this.settings.enable?.value || !this.isInitialized) return;
         
         menu.dataset.filtersInjected = 'true';
         menu.style.position = 'relative';
@@ -588,6 +647,8 @@ export class ChatEnhancer extends Plugin {
     }
 
     private scanAllMessages(): void {
+        if (!this.settings.enable?.value || !this.isInitialized) return;
+
         const containers = [
             document.querySelector('#hs-public-message-list__container'),
             document.querySelector('#hs-private-message-list')
@@ -602,6 +663,7 @@ export class ChatEnhancer extends Plugin {
 
     private processNewMessages(container: HTMLElement): void {
         if (!container) return;
+        if (!this.settings.enable?.value || !this.isInitialized) return;
 
         const messages = container.querySelectorAll('.hs-chat-message-container');
         let foundNewMessages = false;
@@ -673,6 +735,8 @@ export class ChatEnhancer extends Plugin {
     }
 
     private setupResizers(): void {
+        if (!this.settings.enable?.value || !this.isInitialized) return;
+        
         const pub = document.querySelector('#hs-public-message-list__container') as HTMLElement;
         const pm = document.querySelector('#hs-private-message-list') as HTMLElement;
         const menu = document.querySelector('#hs-chat-menu') as HTMLElement;
